@@ -2,18 +2,16 @@ package com.fonrouge.fullStack.view
 
 import com.fonrouge.base.api.CrudTask
 import com.fonrouge.base.api.IApiFilter
-import com.fonrouge.base.common.ICommon
-import com.fonrouge.base.common.ICommonContainer
 import com.fonrouge.base.lib.iconCrud
-import com.fonrouge.fullStack.lib.UrlParams
-import com.fonrouge.fullStack.lib.toEncodedUrlString
-import com.fonrouge.fullStack.lib.toast
 import com.fonrouge.base.model.BaseDoc
 import com.fonrouge.base.model.UserSessionParams
 import com.fonrouge.base.state.ItemState
 import com.fonrouge.fullStack.config.ConfigView
 import com.fonrouge.fullStack.help.IHelpModule
 import com.fonrouge.fullStack.layout.helpButtons
+import com.fonrouge.fullStack.lib.UrlParams
+import com.fonrouge.fullStack.lib.toEncodedUrlString
+import com.fonrouge.fullStack.lib.toast
 import com.fonrouge.fullStack.tabulator.TabulatorMenuItem
 import com.fonrouge.fullStack.view.KVWebManager.frontEndAppName
 import io.kvision.core.*
@@ -72,6 +70,20 @@ abstract class View<FILT : IApiFilter<*>>(
          * This variable is initialized with `BannerLayout.Vertical` as its default value.
          */
         var defaultBannerLayout: BannerLayout = BannerLayout.Vertical
+
+        /**
+         * Registered FAB (Floating Action Button) extension factories invoked in
+         * [startDisplayPage] for all main, non-modal views — after [helpButtons].
+         *
+         * Each factory receives: the container to add widgets to, the view's class
+         * name, and the view's display label. Register at app startup:
+         * ```kotlin
+         * View.fabExtensions.add { container, viewClassName, viewLabel ->
+         *     container.tktButton(viewName = viewClassName, viewLabel = viewLabel)
+         * }
+         * ```
+         */
+        val fabExtensions: MutableList<(Container, String, String) -> Unit> = mutableListOf()
     }
 
     /**
@@ -446,16 +458,17 @@ abstract class View<FILT : IApiFilter<*>>(
             })
             onBeforeDisplayPage(this@startDisplayPage)
             this@startDisplayPage.displayPage()
-            if (helpEnabled) {
-                val viewClassName = this@View::class.simpleName ?: ""
-                if (viewClassName.isNotEmpty()) {
-                    this@startDisplayPage.helpButtons(
-                        viewClassName = viewClassName,
-                        viewLabel = label,
-                        moduleSlug = helpModule?.slug,
-                        showTutorial = crudTask == null || actionUpsert
-                    )
-                }
+            val viewClassName = this@View::class.simpleName ?: ""
+            if (helpEnabled && viewClassName.isNotEmpty()) {
+                this@startDisplayPage.helpButtons(
+                    viewClassName = viewClassName,
+                    viewLabel = label,
+                    moduleSlug = helpModule?.slug,
+                    showTutorial = crudTask == null || actionUpsert
+                )
+            }
+            if (mainView && viewModal == null && viewClassName.isNotEmpty()) {
+                fabExtensions.forEach { ext -> ext(this@startDisplayPage, viewClassName, label) }
             }
             bind(apiFilterObservable) {
                 onApiFilterChange()

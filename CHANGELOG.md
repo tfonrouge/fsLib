@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- `View.fabExtensions` companion property — a mutable list of FAB (Floating Action Button) extension factories invoked in `startDisplayPage` for all main, non-modal views. Register at app startup to inject custom floating buttons into any view.
+
+### Changed
+- Refactored help buttons block in `View.startDisplayPage` for clarity.
+- Cleaned up unused imports (`ICommon`, `ICommonContainer`) in `View.kt`.
+
 ## [3.2.0] - 2026-03-28
 
 ### Removed
