@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.3.0] - 2026-04-20
+
+### Changed
+- **Breaking**: `ItemState.serializedValueMap` value type changed from `Map<String, String?>?` to `Map<String, JsonElement>?`. Seed values now ride as native `JsonElement` inside the outer `ItemState` payload instead of a JSON-in-JSON quoted string, preserving types and removing double-encoding. `JsonNull` represents an explicit null; omit the key to signal "no value".
+- `serializedValueMapEntry(property, value)` moved from `:mongodb` (package `com.fonrouge.fullStack.mongoDb`) to `:core` (package `com.fonrouge.base.state`). Now returns `Map<String, JsonElement>`. The `OffsetDateTime` special case is retained because `OffsetDateTime` is not itself `@Serializable`.
+- `ViewItem.addSerializedValue(property, value)` now stores a `JsonElement` (built via `Json.encodeToJsonElement`).
+- `ViewItem` applies `JsonNull` consistently: explicit nulls are preserved on both form-control assignment and the submission overlay (previous behavior dropped nulls from the overlay).
+- `ViewItem` now splits the single `_serializedValueMap` bucket into two with clear ownership:
+  - `serverSeeds` — transient, populated from the wire `ItemState.serializedValueMap`, drained against form controls during Create display via the private `applyServerSeeds()`; unmatched keys stay as residue and feed the submission overlay. Public `var` with a `private set` — callers read and mutate the map but cannot swap the reference.
+  - `hiddenFields` — persistent, fed by `addSerializedValue(...)`; merged into the submission payload via `dataOverlayProvider`. Keys that collide with an existing form control are skipped in the overlay (unchanged behavior, now explicit). `@PublishedApi internal val` — reachable from the inline `addSerializedValue`.
+- Client-side seed decode in `ViewItem` now unwraps `JsonPrimitive` via kotlinx accessors (`intOrNull`, `doubleOrNull`, `booleanOrNull`) instead of the browser's `JSON.parse`, so integer seeds no longer box into Kotlin/JS `Long` objects that break `FormPanel.getData` submission with a `JsonDecodingException: Expected numeric literal` error. Values up to `2^53` round-trip exactly; beyond that, the browser's own limit applies.
+- **Fixed**: `DateFormControl` seeds now parse via the native `kotlin.js.Date` constructor (ISO 8601-aware) instead of KVision's `String.toDateF()` helper. The latter delegates to `fecha.js` with a format pattern that doesn't match the ISO wire format emitted by `FSOffsetDateTimeSerializer` — the `T` date/time separator fails the format regex and `toDateF` silently returned `Date()` ("now"), so `fechaCreacion` / `fechaEsperada` widgets displayed the current browser time (or a partially-parsed garbage date) instead of the seeded value, and then persisted that wrong value on submit.
+- `IRepository.onQueryCreateItem` KDoc now documents the two idiomatic return shapes (full `item` vs. sparse `serializedValueMap`).
+
+### Migration Guide
+- Update imports: `import com.fonrouge.fullStack.mongoDb.serializedValueMapEntry` → `import com.fonrouge.base.state.serializedValueMapEntry`.
+- Server code calling `serializedValueMapEntry(prop, value)` compiles unchanged; only the return type is now `Map<String, JsonElement>`.
+- Any non-Kotlin consumer that reads `ItemState` JSON manually must expect seed values as embedded JSON values (not quoted strings).
+- Subclasses of `ViewItem` that referenced the private `_serializedValueMap` bucket must migrate to `hiddenFields` (for `addSerializedValue`-style hidden data; `@PublishedApi internal`) or `serverSeeds` (for wire-ingested Create defaults; public `var` with a `private set`).
+
 ## [3.2.1] - 2026-04-07
 
 ### Added

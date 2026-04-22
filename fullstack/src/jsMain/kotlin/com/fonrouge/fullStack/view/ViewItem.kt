@@ -18,7 +18,10 @@ import com.fonrouge.fullStack.getItemState
 import com.fonrouge.fullStack.layout.centeredMessage
 import com.fonrouge.fullStack.tabulator.TabulatorMenuItem
 import io.kvision.core.*
+import io.kvision.form.DateFormControl
 import io.kvision.form.FormPanel
+import io.kvision.form.KFilesFormControl
+import io.kvision.types.KFile
 import io.kvision.html.Button
 import io.kvision.html.ButtonSize
 import io.kvision.html.ButtonStyle
@@ -42,6 +45,10 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.serializer
 import org.w3c.dom.events.MouseEvent
 import web.prompts.confirm
@@ -74,8 +81,43 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
         private const val TOAST_DURATION = 10000
     }
 
+    /**
+     * Per-property seed values for a Create form, populated from the wire via [ItemState.serializedValueMap].
+     * Transient: entries are drained by [applyServerSeeds] during form display — matching keys are applied to
+     * their form control and removed; unmatched keys remain as residue and flow through the
+     * [FormPanel.getData] submission overlay via [viewFormPanel]'s
+     * [dataOverlayProvider][io.kvision.form.Form.dataOverlayProvider].
+     *
+     * Drain is **incremental across [displayForm] invocations** until the map is empty: if a subclass
+     * rebuilds the form (e.g. pushes a new [pageItemBody] that exposes a previously-hidden control),
+     * the next invocation of [applyServerSeeds] picks up the newly-matchable residue without extra
+     * wiring. Failures recorded by [applyServerSeeds] (per-seed `try/catch`) also stay in the bucket
+     * across invocations and will be retried on the next display — useful if a later render changes
+     * the control shape.
+     *
+     * For client-added hidden fields that should ride every submission (e.g. parent IDs), prefer
+     * [addSerializedValue] / [hiddenFields] instead — those persist across re-renders.
+     *
+     * The setter is `private`: external callers can read the map and mutate its entries (`put`, `remove`,
+     * `clear`) but cannot swap the reference with a different [MutableMap]. This protects pending residue
+     * from being accidentally wiped by an unqualified `viewItem.serverSeeds = mutableMapOf()` assignment
+     * from a subclass or test.
+     */
+    var serverSeeds: MutableMap<String, JsonElement> = mutableMapOf()
+        private set
+
+    /**
+     * Hidden, client-side fields to be merged into every form submission without a visible control. Populated
+     * exclusively by [addSerializedValue]; persistent across re-renders and CRUD mode switches. Read back by
+     * [viewFormPanel]'s [dataOverlayProvider][io.kvision.form.Form.dataOverlayProvider] on `getData()`.
+     *
+     * Keys colliding with a form control are intentionally filtered out in the overlay — use a regular form
+     * control for values meant to be visible or editable. Compared to [serverSeeds], this bucket is never
+     * drained and is the right place for things like parent IDs, tenant IDs, or any contextual metadata the
+     * server expects on every Create/Update payload.
+     */
     @PublishedApi
-    internal var _serializedValueMap: MutableMap<String, String?> = mutableMapOf()
+    internal val hiddenFields: MutableMap<String, JsonElement> = mutableMapOf()
     var buttonBack: Button? = null
     var buttonCancel: Button? = null
     var buttonAccept: Button? = null
@@ -83,14 +125,9 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
     val dropDownElementsObs = ObservableValue<List<TabulatorMenuItem>?>(null)
 
     /**
-     * Holds a reference to a FormPanel instance that is used to manage the display
-     * and handling of form inputs for a specified data type.
-     *
-     * The formPanel is initialized with a serializer to enable data serialization
-     * for the associated form items.
-     *
-     * @property formPanel A dynamically typed FormPanel that supports interaction
-     * with forms.
+     * Reference to the [FormPanel] instance that manages display and input handling for the view's item
+     * type. Initialized with the container's item serializer inside [viewFormPanel] so that form data
+     * can be serialized for submission without subclasses having to wire anything up.
      */
     var formPanel: FormPanel<T>? = null
 
@@ -487,8 +524,8 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
             CrudTask.Create -> {
                 item?.let {
                     formPanel?.setData(it)
-                } ?: if (_serializedValueMap.isNotEmpty()) {
-                    applySerializedValueMap()
+                } ?: if (serverSeeds.isNotEmpty()) {
+                    applyServerSeeds()
                 } else Unit
             }
 
@@ -617,8 +654,8 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
                                     if (itemResponse.itemAlreadyOn) {
                                         handleCreateToUpdateTransition(itemResponse, itemResponseItem)
                                     }
-                                } ?: itemResponse.serializedValueMap?.let {
-                                    _serializedValueMap = it.toMutableMap()
+                                } ?: itemResponse.serializedValueMap?.let { seeds ->
+                                    serverSeeds = seeds.toMutableMap()
                                 }
                             }
                             var alreadyBack = false
@@ -736,11 +773,21 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
     open fun transformData(item: T): T = item
 
     /**
-     * Creates a [FormPanel] for this ViewItem, sets up the [dataOverlayProvider][io.kvision.form.Form.dataOverlayProvider]
-     * for tabulator data and remaining serializedValueMap entries.
+     * Creates a [FormPanel] bound to `configView.commonContainer.itemSerializer`, runs [init] against it, adds
+     * it to the receiver container, and installs a [dataOverlayProvider][io.kvision.form.Form.dataOverlayProvider]
+     * that merges three layers into every `getData()` payload:
      *
-     * @param init Configuration block for the form panel.
-     * @return The configured FormPanel.
+     * 1. [serverSeeds] residue — entries whose key has no matching form control.
+     * 2. [hiddenFields] — client-added hidden values, filtered to non-form-bound keys; overrides layer 1 on
+     *    key collision.
+     * 3. Bound tabulators — `toPlainObj()` output keyed by the property name registered via this
+     *    ViewItem's `Tabulator.bind` extension ([tabulators]); always authoritative for its key.
+     *
+     * Explicit [JsonNull] is preserved as `null` in the submission payload — consistent with
+     * [applyServerSeeds], so a server seed of `JsonNull` means "explicit null" end-to-end.
+     *
+     * @param init Configuration block invoked on the freshly created [FormPanel].
+     * @return The configured [FormPanel], already added to the receiver container.
      */
     fun Container.viewFormPanel(init: (FormPanel<T>).() -> Unit): FormPanel<T> {
         val panel = FormPanel(
@@ -748,13 +795,13 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
         )
         init.invoke(panel)
         this.add(panel)
-        // Set up data overlay for tabulators and remaining serializedValueMap entries
         panel.dataOverlayProvider = {
             buildMap {
-                _serializedValueMap.forEach { (key, value) ->
-                    if (panel.form.fields[key] == null) {
-                        value?.let { put(key, JSON.parse<Any?>(it)) }
-                    }
+                serverSeeds.forEach { (key, element) ->
+                    if (panel.form.fields[key] == null) put(key, jsonElementToSubmitValue(element))
+                }
+                hiddenFields.forEach { (key, element) ->
+                    if (panel.form.fields[key] == null) put(key, jsonElementToSubmitValue(element))
                 }
                 tabulators.forEach { (key, tabulatorItem) ->
                     put(key, tabulatorItem.toPlainObj())
@@ -765,33 +812,163 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
     }
 
     /**
-     * Adds a serialized value to the overlay map.
-     * Values added here will be included in [FormPanel.getData] output via the
-     * [dataOverlayProvider][io.kvision.form.Form.dataOverlayProvider], allowing hidden fields
-     * (e.g., parent IDs) to be submitted with the form without a visible control.
+     * Registers a hidden field to be merged into every form submission without a visible control.
      *
-     * @param property The property whose name will be used as the key.
-     * @param value The value to serialize and include in the form submission.
+     * The value is encoded as a [JsonElement] (primitive, nested `@Serializable` object, list, or [JsonNull])
+     * and stored in the persistent [hiddenFields] bucket. On `getData()`, [viewFormPanel]'s
+     * [dataOverlayProvider][io.kvision.form.Form.dataOverlayProvider] merges it into the outgoing payload —
+     * use this for parent IDs, tenant IDs, or any contextual metadata the server expects but that shouldn't
+     * appear as a form control.
+     *
+     * Keys colliding with an existing form control are **silently skipped** by the overlay; a hidden-field
+     * override for a visible control is considered a mistake. Use [serverSeeds] if you want to pre-populate
+     * a visible control, or reshape your form if you need a hidden-but-submittable value.
+     *
+     * Keys colliding with a bound tabulator are **overwritten** by that tabulator's `toPlainObj()` output —
+     * tabulators are always authoritative for their key. Don't use this helper for tabulator-bound
+     * properties; the value would be silently lost on submit.
+     *
+     * @param property Property whose name becomes the map key.
+     * @param value Value to encode and include in every subsequent submission payload.
      */
     inline fun <reified V> addSerializedValue(property: KProperty1<T, V?>, value: V) {
-        _serializedValueMap[property.name] = Json.encodeToString<V>(value = value)
+        hiddenFields[property.name] = Json.encodeToJsonElement<V>(value)
     }
 
     /**
-     * Applies serialized values from the server to form controls during Create operations.
-     * Values that match a form control are applied and removed from the map.
-     * Remaining values are included in getData() via the dataOverlayProvider.
+     * Drains [serverSeeds] against form controls during a Create display cycle, mirroring the dispatch
+     * that [io.kvision.form.Form.setData] performs in Update mode so Create and Update share semantics:
+     *
+     * 1. [JsonElement] seeds are unwrapped via [jsonElementToSubmitValue] — the same helper
+     *    [viewFormPanel]'s overlay uses, so both paths produce identical Kotlin values for the same seed.
+     * 2. Dispatch by form control type:
+     *    - [DateFormControl] → parse the ISO string via the native [kotlin.js.Date] constructor (which
+     *      honours ISO 8601 with fractional seconds and offset) and assign to `.value`; only runs when
+     *      the seed is a [JsonPrimitive] string, otherwise falls through to `else` to surface mismatches
+     *      as a typed setValue rather than a silent cast to garbage. The KVision `String.toDateF()`
+     *      helper is deliberately *not* used here because it delegates to `fecha.js` with a configurable
+     *      format pattern that does not match ISO 8601 (literal `T` separator fails) — a mismatch makes
+     *      `toDateF()` silently return `Date()` ("now") instead of the seeded value.
+     *    - [KFilesFormControl] → decode directly from the [JsonElement] via kotlinx serialization.
+     *    - Otherwise → hand the decoded value to `setValue`. For `bindCustom`-backed selectors (e.g.
+     *      `tomSelectRemote` bound to an `OId` property) this is the 24-char hex / raw int the widget
+     *      stores internally and later sends back to its remote service as `initial`.
+     *
+     * Each seed is applied inside a per-iteration `try/catch`: a single malformed seed logs a warning
+     * and is left in [serverSeeds] rather than aborting the whole drain and stranding earlier applied
+     * keys. Only successfully-applied keys are removed from the bucket. Because a failed seed reached
+     * the `try` block only after matching a form control, the overlay (which filters on "no matching
+     * form control") will skip it on submit — so failures on form-bound keys are **logged and
+     * dropped**, not forwarded. Failures on keys without a matching control never enter the `try` to
+     * begin with; they sit in the residue and ride the overlay as JsonElement-decoded values.
+     *
+     * Field-level [io.kvision.form.FormFieldConverter]s registered via `bind(... converter = ...)` are
+     * *not* consulted here because [io.kvision.form.Form.fieldConverters] is private — Update-mode parity
+     * for custom converters would require an accessor from KVision. None of fsLib's public bindings
+     * register a converter today, so the asymmetry is theoretical; revisit if that changes.
+     *
+     * **Limitation:** form controls added after [applyServerSeeds] has already run (e.g. conditional
+     * fields revealed by a toggle) do not receive their server seed. The key is left in [serverSeeds]
+     * as residue, then filtered out by the overlay once the control appears — silent loss. Rare in
+     * fsLib use today; if it matters, expose a public `reapplySeeds()` hook.
+     *
+     * [JsonNull] seeds are handled at the top of the dispatch and always result in
+     * `formControl.setValue(null)` regardless of control type, so explicit server nulls clear the
+     * widget uniformly (KFiles, DateTime, selectors, etc.).
+     *
+     * ### TODO(upstream) — make per-control seed dispatch shareable with KVision
+     *
+     * **The problem.** KVision's [io.kvision.form.Form] has no entry point for "apply these JsonElement
+     * values to the controls that happen to exist, using the same dispatch [io.kvision.form.Form.setData]
+     * already implements internally". We re-enumerate control types ([DateFormControl],
+     * [KFilesFormControl], …) here and will have to add a branch for every future `*FormControl` KVision
+     * ships — each omission is a silent misapplication; regression surface grows linearly in KVision's
+     * form-controls catalog. Additionally, [io.kvision.form.Form.fieldConverters] is `private`, so
+     * user-registered converters passed to `bind(... converter = ...)` are not consulted here — the
+     * known gap called out above.
+     *
+     * **Alternatives considered.**
+     * - *Stub-fill + `setData(T)`.* Merge [serverSeeds] into a [kotlinx.serialization.json.JsonObject],
+     *   fill sensible defaults for missing non-nullable constructor params, `decodeFromJsonElement` into a
+     *   full `T`, call `setData`. Works today with no upstream changes and inherits every KVision control
+     *   type for free. Downsides: (1) needs a stub policy per Kotlin primitive / `OId` / custom type; (2)
+     *   the stubs then show up in the form unless explicitly cleared post-setData. The "partial `T` has
+     *   no first-class representation" problem is real — but it's the same problem we already accept in
+     *   [applyServerSeeds] (missing required fields leave the form partially empty), so this isn't
+     *   strictly worse than the status quo.
+     * - *Reflect into `fieldConverters`.* Technically possible on JVM via reflection, unreliable on JS.
+     *   Fragile; rejected.
+     *
+     * **Pragmatic upstream asks, in merge-likelihood order** (the original "add a public `setSeeds`" ask
+     * reads as a design debate; these are all-but-mechanical changes KVision maintainers can accept
+     * without taking a philosophical position on sparse hydration):
+     *
+     * 1. **Expose [io.kvision.form.Form.fieldConverters] as `protected`** — closes the converter-parity
+     *    gap on its own, ~5-line PR, no new API surface. Smallest possible ask with concrete benefit.
+     * 2. **Add `protected open fun setSeeds(seeds: Map<String, JsonElement>)` on [io.kvision.form.Form]**
+     *    that walks the shared `setData` dispatcher and applies values only to matching controls. Protected
+     *    scope = subclasses opt in locally; KVision's public API surface is untouched. fsLib then reduces
+     *    [applyServerSeeds] to `panel.form.setSeeds(serverSeeds)` plus residue bookkeeping.
+     * 3. **Public `setSeeds`** — north star, not the opening ask.
+     *
+     * File (1) as a KVision issue first. Even if (2)/(3) never land, (1) alone removes the converter
+     * asymmetry from the footnote above and is worth the PR. Until any of this happens, every new
+     * KVision-provided `*FormControl` needs a corresponding branch in the `when` below.
      */
-    private fun applySerializedValueMap() {
+    private fun applyServerSeeds() {
         val panel = formPanel ?: return
-        val assignedValues = mutableSetOf<String>()
-        _serializedValueMap.forEach { (key, value) ->
+        if (debug) console.log("applyServerSeeds: ${serverSeeds.size} seed(s) pending")
+        val applied = mutableSetOf<String>()
+        serverSeeds.forEach { (key, element) ->
             val formControl = panel.form.fields[key] ?: return@forEach
-            assignedValues += key
-            value?.let { v -> JSON.parse<Any>(v) }?.let { parsed ->
-                formControl.setValue(parsed)
-            } ?: formControl.setValue(null)
+            try {
+                when {
+                    // Top-level null branch: every control type receives `null` uniformly when the
+                    // server seeds an explicit JsonNull. Without this, KFilesFormControl would fall
+                    // into the KFiles branch and throw on decodeFromJsonElement(ListSerializer(...),
+                    // JsonNull) — caught by the try/catch, but logged+dropped instead of clearing
+                    // the widget. DateFormControl used to clear "by accident" via the isString
+                    // guard + else fallback; now the semantics are explicit for all controls.
+                    element is JsonNull -> formControl.setValue(null)
+
+                    formControl is DateFormControl && element is JsonPrimitive && element.isString -> {
+                        // Parse the wire ISO 8601 string via the native JS Date constructor, NOT via
+                        // [io.kvision.types.toDateF]. The KVision helper delegates to the `fecha.js`
+                        // library with a format pattern (default `"YYYY-MM-DD HH:mm:ss"`) that does not
+                        // match ISO 8601 — the literal `T` separator between date and time fails the
+                        // format regex, so `fecha.parse` returns `false` and `toDateF` silently falls
+                        // back to `Date()` (i.e. "now"). Prior to this fix the widget silently rendered
+                        // the current browser time (or a partially-parsed garbage Date) instead of the
+                        // seeded value. [kotlin.js.Date] parses ISO 8601 correctly including fractional
+                        // seconds and timezone offsets — which is the wire format `OffsetDateTime`
+                        // emits on serialize.
+                        //
+                        // Invalid ISO strings produce a Date whose `getTime()` is `NaN` — a "valid-looking"
+                        // object that the widget stores without complaint and later round-trips as
+                        // `"Invalid Date"`. Trip the outer try/catch with an explicit error so the seed
+                        // is logged and left in the residue instead of silently corrupting the form.
+                        val parsed = kotlin.js.Date(element.content)
+                        if (parsed.getTime().isNaN()) {
+                            error("DateFormControl seed for '$key' is not a valid ISO 8601 date: '${element.content}'")
+                        }
+                        formControl.value = parsed
+                    }
+
+                    formControl is KFilesFormControl -> formControl.value =
+                        Json.decodeFromJsonElement(ListSerializer(KFile.serializer()), element)
+
+                    else -> formControl.setValue(jsonElementToSubmitValue(element))
+                }
+                applied += key
+            } catch (t: Throwable) {
+                // Pass the throwable as a second argument so browser devtools expose the stack trace
+                // rather than just the message string.
+                console.warn("applyServerSeed: failed for key='$key'; logged and dropped", t)
+            }
         }
-        _serializedValueMap -= assignedValues
+        serverSeeds -= applied
+        if (debug && applied.isNotEmpty()) {
+            console.log("applyServerSeeds: applied ${applied.joinToString(prefix = "[", postfix = "]")}")
+        }
     }
 }

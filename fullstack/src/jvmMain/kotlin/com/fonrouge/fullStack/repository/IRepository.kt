@@ -221,10 +221,21 @@ interface IRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any
     suspend fun onQueryCreate(apiItem: ApiItem.Query.Create<T, ID, FILT>): SimpleState
 
     /**
-     * Called during Query.Create to provide the initial item for the creation form.
+     * Called during Query.Create to seed the Create form. Two idiomatic return shapes:
+     *
+     * - **Full item** — `return ItemState(item = T(...))` when a valid fully-constructed `T` makes sense
+     *   as a default (e.g. simple entity with sensible constructor defaults).
+     * - **Sparse seeds** — `return ItemState(serializedValueMap = serializedValueMapEntry(T::field, value) + ...)`
+     *   when constructing a full `T` is impractical (required non-nullable fields, generated `_id`, etc.).
+     *   Each entry maps a property name to a [kotlinx.serialization.json.JsonElement] via
+     *   [com.fonrouge.base.state.serializedValueMapEntry]; on the client, matching form controls are
+     *   pre-populated and unmatched entries ride the submission overlay as hidden fields.
+     *
+     * Returning `ItemState(isOk = true)` (no item, no map) yields an empty form — valid if the user is
+     * expected to fill everything from scratch.
      *
      * @param apiItem The create query being processed.
-     * @return [ItemState] with the template item for creation.
+     * @return [ItemState] carrying either an `item` template or a `serializedValueMap` of field seeds.
      */
     suspend fun onQueryCreateItem(apiItem: ApiItem.Query.Create<T, ID, FILT>): ItemState<T>
 

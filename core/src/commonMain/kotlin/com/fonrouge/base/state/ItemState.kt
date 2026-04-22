@@ -4,6 +4,7 @@ import com.fonrouge.base.offsetDateTimeNow
 import com.fonrouge.base.serializers.FSOffsetDateTimeSerializer
 import io.kvision.types.OffsetDateTime
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 /**
  * Represents the state of an item, including its status, associated messages, and additional data.
@@ -16,7 +17,9 @@ import kotlinx.serialization.Serializable
  * @param item The item associated with this state. Defaults to `null` if not provided.
  * @param itemAlreadyOn A flag indicating whether the item is already in an "on" state. Defaults to `false`.
  * @param noDataModified A nullable flag indicating whether no data has been modified. Can be `null`.
- * @param serializedValueMap A map that holds serialized item properties values. Can be `null`.
+ * @param serializedValueMap A map of per-property seed values encoded as [JsonElement] (use [kotlinx.serialization.json.JsonNull]
+ *                           for an explicit null value; omit the key to signal "no value"). Primarily used by `onQueryCreateItem`
+ *                           to seed a Create form's defaults without constructing a full [T]. Can be `null`.
  * @param state The state representing the current status of the item, which defaults to `State.Ok` if the
  *              item or `serializedValueMap` is present. Otherwise, defaults to `State.Error`.
  * @param msgOk An optional message associated with a successful state. Defaults to `MSG_OK`.
@@ -28,7 +31,7 @@ data class ItemState<T>(
     val item: T? = null,
     val itemAlreadyOn: Boolean = false,
     val noDataModified: Boolean? = null,
-    val serializedValueMap: Map<String, String?>? = null,
+    val serializedValueMap: Map<String, JsonElement>? = null,
     override val state: State = if (item != null || serializedValueMap.isNullOrEmpty().not()) State.Ok else State.Error,
     override val msgOk: String? = MSG_OK,
     override val msgError: String? = if (state != State.Ok) MSG_ERROR else null,

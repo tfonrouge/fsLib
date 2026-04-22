@@ -44,6 +44,10 @@ kotlin {
             implementation(libs.kotlinx.datetime)
         }
 
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+        }
+
         jvmMain.dependencies {
             implementation(kotlin("reflect"))
             // Ktor client

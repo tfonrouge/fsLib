@@ -1,5 +1,6 @@
 package com.fonrouge.base.state
 
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.*
 
 /**
@@ -17,7 +18,7 @@ class ItemStateTest {
 
     @Test
     fun itemStateWithNullItemAndMap() {
-        val map = mapOf("field1" to "value1")
+        val map = mapOf("field1" to JsonPrimitive("value1"))
         val state = ItemState<String>(serializedValueMap = map)
         assertEquals(State.Ok, state.state)
         assertNull(state.item)
