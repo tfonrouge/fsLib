@@ -379,6 +379,9 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
             }
 
             is ApiItem.Action -> {
+                // CONTRACT.md I5: gate the generic/remote write tier only; the low-level service-tier
+                // methods bypass this. Reads (Query) are never gated.
+                allowApiCrud(apiItem).also { if (it.hasError) return it.asItemState() }
                 when (apiItem) {
                     is ApiItem.Action.Create<T, ID, FILT> -> actionCreate(apiItem = apiItem)
                     is ApiItem.Action.Update<T, ID, FILT> -> actionUpdate(apiItem = apiItem)
@@ -986,10 +989,13 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
             if (it.hasError) return it
             it.item?.let { apiItem1 = apiItem1.copy(item = it) }
         }
+        // Strip body properties and validate BEFORE the write region. A validation rejection
+        // must short-circuit here so it cannot fire the after-hooks or write a phantom
+        // change-log entry in the `finally` block (mirrors SqlRepository.insertOne ordering).
+        apiItem1 = apiItem1.copy(item = apiItem1.item.copyItemWithPrimaryConstructorParameters())
+        onValidate(apiItem1, apiItem1.item).also { if (it.hasError) return it.asItemState() }
         var result: Boolean? = null
         return try {
-            apiItem1 = apiItem1.copy(item = apiItem1.item.copyItemWithPrimaryConstructorParameters())
-            onValidate(apiItem1, apiItem1.item).also { if (it.hasError) return it.asItemState() }
             val insertOneResult: InsertOneResult = mongoColl.insertOne(
                 apiItem1.item,
             ).awaitSingle()
@@ -1000,7 +1006,11 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
         } finally {
             onAfterCreateAction(apiItem = apiItem1, result = result == true)
             onAfterUpsertAction(apiItem = apiItem1, orig = null, result = result == true)
-            changeLogCollFun()?.buildChangeLog(cc = commonContainer, apiItem = apiItem1, orig = null)
+            // Only log a change when the insert actually succeeded; a failed/exception-thrown
+            // insert (or an upstream validation return) must not produce a change-log entry.
+            if (result == true) {
+                changeLogCollFun()?.buildChangeLog(cc = commonContainer, apiItem = apiItem1, orig = null)
+            }
         }
     }
 
@@ -1386,17 +1396,20 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
                 apiItem = apiItem.copy(item = it)
             }
         }
+        // CONTRACT.md I2: strip body properties, short-circuit on no-op, and validate BEFORE the
+        // write `try`. A no-change skip or a validation rejection must return without reaching the
+        // catch's after-hooks (mirrors insertOne / SqlRepository ordering).
+        apiItem = apiItem.copy(item = apiItem.item.copyItemWithPrimaryConstructorParameters())
+        if (apiItem.item.json == orig.json) return ItemState(
+            state = State.Warn,
+            msgError = "Update skipped - no changes detected in item"
+        )
+        onValidate(
+            apiItem,
+            apiItem.item
+        ).also { if (it.hasError) return it.asItemState() }
+        /* Can't use here UpdateOptions because an orig item is required to be passed to upsertOne() */
         val result: UpdateResult = try {
-            apiItem = apiItem.copy(item = apiItem.item.copyItemWithPrimaryConstructorParameters())
-            if (apiItem.item.json == orig.json) return ItemState(
-                state = State.Warn,
-                msgError = "Update skipped - no changes detected in item"
-            )
-            onValidate(
-                apiItem,
-                apiItem.item
-            ).also { if (it.hasError) return it.asItemState() }
-            /* Can't use here UpdateOptions because an orig item is required to be passed to upsertOne() */
             coroutine.updateOne(
                 filter = and(BaseDoc<*>::_id eq id, filter ?: EMPTY_BSON),
                 target = apiItem.item,
@@ -1521,16 +1534,19 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
             }
         }
         val filter1 = and(BaseDoc<ID>::_id eq apiItem1.item._id, filter ?: EMPTY_BSON)
+        // CONTRACT.md I2: strip body properties, short-circuit on no-op, and validate BEFORE the
+        // write `try`, so a no-change skip or a validation rejection returns without reaching the
+        // catch's after-hooks (mirrors insertOne / SqlRepository ordering).
+        apiItem1 = apiItem1.copy(item = apiItem1.item.copyItemWithPrimaryConstructorParameters())
+        if (orig != null && apiItem1.item.json == orig.json) return ItemState(
+            state = State.Warn,
+            msgError = "Update skipped - no changes detected in item"
+        )
+        onValidate(
+            apiItem1,
+            apiItem1.item
+        ).also { if (it.hasError) return it.asItemState() }
         val updateResult = try {
-            apiItem1 = apiItem1.copy(item = apiItem1.item.copyItemWithPrimaryConstructorParameters())
-            if (orig != null && apiItem1.item.json == orig.json) return ItemState(
-                state = State.Warn,
-                msgError = "Update skipped - no changes detected in item"
-            )
-            onValidate(
-                apiItem1,
-                apiItem1.item
-            ).also { if (it.hasError) return it.asItemState() }
             mongoColl.coroutine.updateOne(
                 filter = filter1,
                 target = apiItem1.item,

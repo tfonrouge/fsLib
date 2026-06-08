@@ -237,6 +237,11 @@ open class InMemoryRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, U
 
         onBeforeDeleteAction(apiItem).also { if (it.hasError) return it }
 
+        // CONTRACT.md I3: the concrete deleteOne is the single, unbypassable owner of dependency
+        // safety — a parent with existing children cannot be deleted. (Mongo/SQL already enforce
+        // this; previously the in-memory engine did not, allowing silent referential-integrity loss.)
+        findChildrenNot(item).also { if (it.hasError) return it }
+
         var result = false
         return try {
             result = store.remove(item._id) != null
@@ -317,6 +322,9 @@ open class InMemoryRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, U
             }
 
             is ApiItem.Action -> {
+                // CONTRACT.md I5: gate the generic/remote write tier only; the low-level service-tier
+                // methods bypass this. Reads (Query) are never gated.
+                allowApiCrud(apiItem).also { if (it.hasError) return it.asItemState() }
                 when (apiItem) {
                     is ApiItem.Action.Create -> insertOne(apiItem)
                     is ApiItem.Action.Update -> updateOne(apiItem)

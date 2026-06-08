@@ -318,10 +318,22 @@ abstract class SqlRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UI
                 }
             }
 
-            is ApiItem.Action -> when (apiItem) {
-                is ApiItem.Action.Create -> insertOne(item = apiItem.item, apiFilter = apiItem.apiFilter, call = call)
-                is ApiItem.Action.Update -> updateOne(item = apiItem.item, apiFilter = apiItem.apiFilter, call = call)
-                is ApiItem.Action.Delete -> deleteOne(id = apiItem.item._id, apiFilter = apiItem.apiFilter)
+            is ApiItem.Action -> {
+                // CONTRACT.md I5: gate the generic/remote write tier only; the low-level service-tier
+                // methods bypass this. Reads (Query) are never gated.
+                allowApiCrud(apiItem).also { if (it.hasError) return it.asItemState() }
+                // CONTRACT.md I6: enforce the per-action CRUD permission on the remote path
+                // (call != null), matching the Query branch above; the trusted service tier
+                // (call == null) is a no-op, as is an unconfigured PermissionRegistry.
+                call?.let {
+                    getCrudPermission(call, apiItem.crudTask)
+                        .also { if (it.state == State.Error) return ItemState(it) }
+                }
+                when (apiItem) {
+                    is ApiItem.Action.Create -> insertOne(item = apiItem.item, apiFilter = apiItem.apiFilter, call = call)
+                    is ApiItem.Action.Update -> updateOne(item = apiItem.item, apiFilter = apiItem.apiFilter, call = call)
+                    is ApiItem.Action.Delete -> deleteOne(id = apiItem.item._id, apiFilter = apiItem.apiFilter)
+                }
             }
         }
     }

@@ -1,8 +1,14 @@
 package com.fonrouge.fullStack.memoryDb
 
 import com.fonrouge.base.api.ApiFilter
+import com.fonrouge.base.api.ApiItem
 import com.fonrouge.base.api.ApiList
+import com.fonrouge.base.api.IApiItem
+import com.fonrouge.base.state.SimpleState
+import com.fonrouge.base.state.State
+import com.fonrouge.fullStack.repository.IRepository
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -141,6 +147,138 @@ class InMemoryRepositoryTest {
         val repo = createRepo()
         val item = repo.findOne(ApiFilter())
         assertNull(item)
+    }
+
+    // ── Dependency safety (F2 / CONTRACT.md I3) ─────────────────
+
+    /** A child repository keyed by ChildItem._id, referencing parents via [ChildItem.parentId]. */
+    private fun childRepo() = InMemoryRepository<ChildItem, String, ApiFilter, String>(CommonChildItem)
+
+    /**
+     * A parent repository that declares [child] as a dependent collection (children reference the
+     * parent through [ChildItem.parentId]).
+     */
+    private fun parentRepoDependentOn(
+        child: InMemoryRepository<ChildItem, String, ApiFilter, String>,
+    ) = object : InMemoryRepository<ParentItem, String, ApiFilter, String>(CommonParentItem) {
+        override val dependencies: (() -> List<IRepository.Dependency<*, String>>) = {
+            listOf(IRepository.Dependency(CommonChildItem, ChildItem::parentId) { child })
+        }
+    }
+
+    @Test
+    fun deleteBlockedWhenChildrenExist() = runTest {
+        val children = childRepo().seed(listOf(ChildItem(_id = "c1", parentId = "p1")))
+        val parents = parentRepoDependentOn(children).seed(listOf(ParentItem(_id = "p1", name = "HasChild")))
+
+        val result = parents.deleteOne("p1", ApiFilter())
+
+        assertTrue(result.hasError, "deleting a parent that still has children must be refused")
+        assertNotNull(parents.findById("p1", ApiFilter()), "the parent must not have been removed")
+    }
+
+    @Test
+    fun deleteAllowedWhenNoChildren() = runTest {
+        val children = childRepo().seed(listOf(ChildItem(_id = "c1", parentId = "p1")))
+        val parents = parentRepoDependentOn(children).seed(
+            listOf(ParentItem(_id = "p1", name = "HasChild"), ParentItem(_id = "p2", name = "NoChild"))
+        )
+
+        val result = parents.deleteOne("p2", ApiFilter())
+
+        assertFalse(result.hasError, "deleting a parent with no children must succeed")
+        assertNull(parents.findById("p2", ApiFilter()))
+    }
+
+    // ── Generic-CRUD gate (CONTRACT.md I5) ──────────────────────
+
+    /** Repository whose generic-CRUD gate is closed (rejects every generic write). */
+    private fun gateClosedRepo() = object : InMemoryRepository<TestItem, String, ApiFilter, String>(CommonTestItem) {
+        override suspend fun allowApiCrud(apiItem: ApiItem.Action<TestItem, String, ApiFilter>): SimpleState =
+            SimpleState(state = State.Error, msgError = "not writable via the generic API")
+    }
+
+    @Test
+    fun gateClosedBlocksGenericWritesButNotReadsOrService() = runTest {
+        val repo = gateClosedRepo()
+        repo.seed(listOf(TestItem(_id = "g1", name = "Seed")))
+        val filterJson = Json.encodeToString(CommonTestItem.apiFilterSerializer, ApiFilter())
+
+        // Generic write (apiItemProcess Action) is rejected by the closed gate, and nothing persists.
+        val createReq = IApiItem.Action.Create<TestItem, String, ApiFilter>(
+            serializedItem = Json.encodeToString(CommonTestItem.itemSerializer, TestItem(_id = "g2", name = "Blocked")),
+            serializedApiFilter = filterJson,
+        )
+        val writeRes = repo.apiItemProcess(null, createReq)
+        assertTrue(writeRes.hasError, "a closed gate must reject generic writes")
+        assertNull(repo.findById("g2", ApiFilter()), "a rejected generic write must not persist")
+
+        // Generic read (apiItemProcess Query.Read) is NOT gated.
+        val readReq = IApiItem.Query.Read<TestItem, String, ApiFilter>(
+            serializedId = Json.encodeToString(CommonTestItem.idSerializer, "g1"),
+            serializedApiFilter = filterJson,
+        )
+        assertFalse(repo.apiItemProcess(null, readReq).hasError, "reads must not be gated")
+
+        // Generic update is gated too, and a rejected update does not apply.
+        val updateReq = IApiItem.Action.Update<TestItem, String, ApiFilter>(
+            serializedItem = Json.encodeToString(CommonTestItem.itemSerializer, TestItem(_id = "g1", name = "ChangedViaGeneric")),
+            serializedApiFilter = filterJson,
+        )
+        assertTrue(repo.apiItemProcess(null, updateReq).hasError, "a closed gate must reject generic updates")
+        assertEquals("Seed", repo.findById("g1", ApiFilter())?.name, "a rejected generic update must not apply")
+
+        // Generic delete is gated too, and a rejected delete does not remove the item.
+        val deleteReq = IApiItem.Action.Delete<TestItem, String, ApiFilter>(
+            serializedItem = Json.encodeToString(CommonTestItem.itemSerializer, TestItem(_id = "g1", name = "Seed")),
+            serializedApiFilter = filterJson,
+        )
+        assertTrue(repo.apiItemProcess(null, deleteReq).hasError, "a closed gate must reject generic deletes")
+        assertNotNull(repo.findById("g1", ApiFilter()), "a rejected generic delete must not remove the item")
+
+        // Service tier (low-level insertOne) bypasses the gate.
+        assertFalse(
+            repo.insertOne(TestItem(_id = "g3", name = "Service"), ApiFilter()).hasError,
+            "service-tier writes must bypass the gate",
+        )
+        assertNotNull(repo.findById("g3", ApiFilter()))
+    }
+
+    // ── Validation side-effect freedom (CONTRACT.md I2) ─────────
+
+    /** Repository that rejects every item in [onValidate] and records whether after-hooks fired. */
+    private class RejectingRepo : InMemoryRepository<TestItem, String, ApiFilter, String>(CommonTestItem) {
+        var afterCreateFired = false
+        var afterUpsertFired = false
+        override suspend fun onValidate(
+            apiItem: ApiItem.Action<TestItem, String, ApiFilter>,
+            item: TestItem,
+        ): SimpleState = SimpleState(state = State.Error, msgError = "invalid")
+
+        override suspend fun onAfterCreateAction(
+            apiItem: ApiItem.Action.Create<TestItem, String, ApiFilter>,
+            result: Boolean,
+        ) {
+            afterCreateFired = true
+        }
+
+        override suspend fun onAfterUpsertAction(
+            apiItem: ApiItem.Action<TestItem, String, ApiFilter>,
+            orig: TestItem?,
+            result: Boolean,
+        ) {
+            afterUpsertFired = true
+        }
+    }
+
+    @Test
+    fun validationFailureFiresNoAfterHooksAndNoWrite() = runTest {
+        val repo = RejectingRepo()
+        val res = repo.insertOne(TestItem(_id = "v1", name = "X"), ApiFilter())
+        assertTrue(res.hasError, "a validation failure must surface as an error")
+        assertNull(repo.findById("v1", ApiFilter()), "a validation failure must not persist anything")
+        assertFalse(repo.afterCreateFired, "a validation failure must not fire onAfterCreateAction")
+        assertFalse(repo.afterUpsertFired, "a validation failure must not fire onAfterUpsertAction")
     }
 
     // ── ReadOnly ────────────────────────────────────────────────

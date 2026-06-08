@@ -18,6 +18,40 @@ import kotlin.reflect.KProperty1
  * parameters (BSON filters, lookup wrappers, aggregation pipelines) are left to concrete implementations
  * as additional overloads.
  *
+ * ## Write & Lifecycle Contract
+ *
+ * The authoritative spec lives in `blueprints/repository-write-lifecycle/CONTRACT.md`. Invariants
+ * tagged **(target)** are the agreed end-state still rolling out across engines (see
+ * `blueprints/repository-write-lifecycle/PLAN.md`); the cross-engine conformance suite (PLAN P1.8)
+ * is being built to pin them. Untagged invariants are enforced today.
+ *
+ * - **Two write tiers (one-directional).** [apiItemProcess] is the generic/remote entry point and
+ *   dispatches down to the low-level [insertOne]/[updateOne]/[deleteOne] methods, which form the
+ *   trusted service tier and never call back into [apiItemProcess]. Domain services call the
+ *   low-level methods directly.
+ * - **Generic-CRUD gate.** `allowApiCrud` is invoked once in the [apiItemProcess] write (Action)
+ *   branch — after [asApiItem] and the [readOnly] gate, and before action dispatch, any applicable
+ *   per-action CRUD permission check, and the write lifecycle hooks. It gates the generic/remote tier
+ *   **only**; the service tier bypasses it. Distinct from [readOnly] (which blocks *all* tiers).
+ * - **Validation & after-hooks.** [onValidate] runs after the before-hooks and before the write. A
+ *   validation failure — or a no-op/no-change skip — returns *before the write is attempted*: it
+ *   fires **no** after-hooks and writes **no** change-log entry. Once a write is *attempted*, its
+ *   after-hooks fire **exactly once** with a success flag (they run even when the write fails, with
+ *   `result = false`); the change-log is written **only on success**.
+ * - **Canonical hook order (target).** Before-hooks shared→specific ([onQueryUpsert] →
+ *   `onQuery{Create|Update}`, then [onBeforeUpsertAction] → `onBefore{Create|Update}Action`);
+ *   after-hooks specific→shared (`onAfter{Create|Update}Action` → [onAfterUpsertAction]); the shared
+ *   *Upsert* hook is outermost. Rollout: Mongo/SQL `updateOne` before-hooks and Mongo
+ *   `updateFieldsById` query gates still differ — see PLAN P2.2.
+ * - **Dependency safety.** [findChildrenNot] blocks deleting a parent that still has children, in
+ *   every engine. **(target:** run *exactly once*, owned solely by the concrete [deleteOne] —
+ *   Mongo/SQL currently also check via [onQueryDelete]; see PLAN P2.1**)**
+ * - **Permissions.** On the generic/remote path a non-null `call` engages the per-action CRUD
+ *   permission check (after `allowApiCrud`); when `call` is null (the trusted service tier) the check
+ *   is a documented no-op. The in-memory engine is intentionally permission-free (samples/tests).
+ * - **Initialization (target).** [onAfterOpen] should run exactly once before first use and surface
+ *   failures; today only the Mongo engine auto-invokes it (fire-and-forget) — see PLAN P2.3.
+ *
  * @param T The entity type, must extend [BaseDoc].
  * @param ID The identifier type.
  * @param FILT The filter type, must extend [IApiFilter].
@@ -370,6 +404,28 @@ interface IRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any
      * @return [ItemState] wrapping the (possibly modified) API item, or an error to reject.
      */
     suspend fun asApiItem(apiItem: ApiItem<T, ID, FILT>): ItemState<ApiItem<T, ID, FILT>>
+
+    // ── Generic-CRUD gate ─────────────────────────────────────
+
+    /**
+     * Gate for the **generic / remote** write tier. Invoked exactly once in the write (Action) branch
+     * of [apiItemProcess] — after [asApiItem] transformation and the [readOnly] gate, and before
+     * action dispatch, any applicable per-action CRUD permission check, and the write lifecycle hooks.
+     *
+     * Gates the generic/remote entry point **only**: the low-level service-tier methods
+     * ([insertOne], [updateOne], [deleteOne], and engine helpers such as `updateFieldsById`)
+     * intentionally bypass it, so domain services call them directly. Override this — rather than
+     * overriding the whole [apiItemProcess] dispatcher — to make an entity "writable only via domain
+     * services": return an error [SimpleState] to reject generic writes while leaving the trusted
+     * service tier open. Reads (`Query`) are never gated.
+     *
+     * Distinct from [readOnly], which blocks *all* tiers; use a distinct error message
+     * (e.g. "not writable via the generic API"), never the read-only message.
+     *
+     * @param apiItem The create/update/delete action arriving through the generic entry point.
+     * @return [SimpleState] — an error rejects the generic write; the default permits all writes.
+     */
+    suspend fun allowApiCrud(apiItem: ApiItem.Action<T, ID, FILT>): SimpleState = SimpleState(isOk = true)
 
     // ── Nested Types ──────────────────────────────────────────
 

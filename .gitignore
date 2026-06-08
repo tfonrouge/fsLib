@@ -12,3 +12,6 @@ build
 /utils/build/
 /modelUtils/build/
 /buildSrc/.gradle/
+
+# Claude Code local state (permissions, sessions, absolute paths) — do not commit
+/.claude/

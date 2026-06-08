@@ -26,3 +26,42 @@ object CommonTestItem : ICommonContainer<TestItem, String, ApiFilter>(
     labelItem = "Item",
     labelList = "Items",
 )
+
+/**
+ * Parent entity for dependency-checking tests (the entity being deleted).
+ */
+@Serializable
+data class ParentItem(
+    override val _id: String = "",
+    val name: String = "",
+) : BaseDoc<String>
+
+/**
+ * Common container providing metadata for [ParentItem].
+ */
+object CommonParentItem : ICommonContainer<ParentItem, String, ApiFilter>(
+    itemKClass = ParentItem::class,
+    filterKClass = ApiFilter::class,
+    labelItem = "Parent",
+    labelList = "Parents",
+)
+
+/**
+ * Child entity referencing a [ParentItem] via [parentId]; used to prove that deleting a parent
+ * with existing children is refused.
+ */
+@Serializable
+data class ChildItem(
+    override val _id: String = "",
+    val parentId: String = "",
+) : BaseDoc<String>
+
+/**
+ * Common container providing metadata for [ChildItem].
+ */
+object CommonChildItem : ICommonContainer<ChildItem, String, ApiFilter>(
+    itemKClass = ChildItem::class,
+    filterKClass = ApiFilter::class,
+    labelItem = "Child",
+    labelList = "Children",
+)
