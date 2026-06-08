@@ -151,13 +151,13 @@ constructs trusted writes by construction. Addresses N3, N8.
 
 ## I7 — `updateMany` / `bulkWrite` are raw, ungated escape hatches; `updateFieldsById` is Mongo-only
 
-**Status: Behaviorally enforced; explanatory KDoc pending PLAN P1.7.**
+**Status: Behaviorally enforced** (explanatory KDoc added — P1.7).
 
 `updateMany` and `bulkWrite` bypass **all** hooks, permissions, changelog, and `allowApiCrud`,
 writing directly to the driver (the latter from a detached background scope). They are intentional
-performance escape hatches and provide **no** part of the write-control story (to be stated in their
-KDoc, P1.7). `updateFieldsById` exists **only** on `Coll` (Mongo) — service code that uses it is
-engine-coupled (to be documented at the method, P1.7). Addresses N6, N7.
+performance escape hatches and provide **no** part of the write-control story (stated in their KDoc).
+`updateFieldsById` exists **only** on `Coll` (Mongo) — service code that uses it is engine-coupled
+(documented at the method). Addresses N6, N7.
 
 ---
 
@@ -166,4 +166,5 @@ engine-coupled (to be documented at the method, P1.7). Addresses N6, N7.
 The "generic surface closed, service tier open" state (`allowApiCrud` returning an error) is a
 **distinct concept** from `readOnly` ("nothing writes"). It must use its own vocabulary and error
 message (e.g. *"not writable via the generic API"*), never the `readOnly` message — the two must not
-be conflated.
+be conflated. `IRepository` provides `apiCrudDisabledErrorMsg` and the `denyApiCrud()` helper (P1.6)
+so overrides default to the correct vocabulary.

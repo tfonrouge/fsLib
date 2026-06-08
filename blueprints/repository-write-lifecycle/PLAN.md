@@ -32,8 +32,8 @@
 | **P1.3** | Add the `findChildrenNot` check to `InMemoryRepository.deleteOne` (after `onBeforeDeleteAction`, before `store.remove`) + regression test: deleting a parent-with-children returns `State.Error`. | `InMemoryRepository.kt:227-253` | **F2 (the violation)**, I3 | ✅ done (tests `deleteBlockedWhenChildrenExist`, `deleteAllowedWhenNoChildren`) |
 | **P1.4** | Write the I1–I7 invariants into `IRepository` KDoc, referencing `CONTRACT.md`. | `IRepository.kt` | F7/root cause, I1–I7, D7 | ✅ done — corrected per review: after-hook semantics (fire on *attempted* writes incl. failures; only changelog is success-gated), `(target)` tags for unconverged invariants (hook order P2.2, exactly-once delete P2.1, init P2.3), accurate `allowApiCrud` placement |
 | **P1.5** | **`allowApiCrud`** — add `suspend fun allowApiCrud(apiItem: ApiItem.Action<T,ID,FILT>): SimpleState = SimpleState(isOk = true)` to `IRepository` (default in interface); invoke once at the top of the `apiItemProcess` Action branch in all three engines. | `IRepository.kt`, `Coll.kt`, `SqlRepository.kt`, `InMemoryRepository.kt` | N1, N2, D4, I5 | ✅ done |
-| **P1.6** | Distinct vocabulary/message for the generic-only lockdown (e.g. `"not writable via the generic API"`), never the `readOnly` message. | new error/const + P1.5 default-closed message | N4, I5 naming rule | ☐ |
-| **P1.7** | KDoc `updateMany` + `bulkWrite` as ungated/unhooked escape hatches; KDoc `updateFieldsById` as Mongo-only/engine-coupling. | `Coll.kt:521`, `Coll.kt:1442`, `Coll.kt:1338` | N6, N7, I7 | ☐ |
+| **P1.6** | Distinct vocabulary/message for the generic-only lockdown, never the `readOnly` message. Added `IRepository.apiCrudDisabledErrorMsg` (default-overridable) + `denyApiCrud()` helper; the gate conformance test uses it. | `IRepository.kt`, `InMemoryRepositoryTest.kt` | N4, I5 naming rule | ✅ done |
+| **P1.7** | KDoc `updateMany` + `bulkWrite` as ungated/unhooked escape hatches; KDoc `updateFieldsById` as Mongo-only/engine-coupling. | `Coll.kt` `bulkWrite`/`updateMany`/`updateFieldsById` | N6, N7, I7 | ✅ done |
 | **P1.8** | **Cross-engine conformance suite** (parameterized over Mongo/SQL/InMemory, hosted dependency-free in memorydb) + one real-mongod write-failure test (Testcontainers preferred). Asserts: gate (Action rejected when closed / Read allowed / low-level `insertOne` still succeeds / `call==null` passes permission), validation-failure ⇒ no changelog + no success after-hooks, exactly-once delete check, and (enabled with Phase 2) canonical hook order. | new test module | D6, locks F1/F2/N1, I1–I6 | ⏳ in progress — portable subset landed in memorydb (`gateClosedBlocksGenericWritesButNotReadsOrService` pins I5; `validationFailureFiresNoAfterHooksAndNoWrite` pins I2). Pending: parameterize across Mongo/SQL, real-mongod write-failure (Testcontainers), and hook-order/exactly-once assertions (enabled with P2.1/P2.2). |
 | **P1.9** | Close the SQL remote-write permission gap (N8): run the per-action CRUD permission check in `SqlRepository.apiItemProcess` Action branch, matching its Query branch + Mongo. Document the in-memory engine's intentional permission exemption (CONTRACT I6). | `SqlRepository.kt` apiItemProcess Action | N8 (new), I6, D8 | ✅ done — no-op without a configured `rolePermissionProvider`; cross-engine permission pin pending P1.8 |
 
@@ -60,10 +60,9 @@ the BREAKING Phase-2 batch (P2.1–P2.3) is separate.
 
 ## Immediate next action
 
-P1.1–P1.5 and P1.9 are **done and verified** (all three engines compile; memorydb tests green incl.
-the dependency-safety regression, the create/update/delete gate test, and the validation
-side-effect test). P1.8 is **partially landed** (the in-memory pins for I2 and I5). Finish the SAFE
-batch with **P1.6** (distinct gate vocabulary), **P1.7** (escape-hatch/engine-coupling KDoc), and the
-rest of **P1.8** (parameterize across Mongo/SQL + the real-mongod write-failure test). Phase 2
-(BREAKING) is now **unblocked** — its prerequisite P1.4 (contract KDoc) is written — and should be
-approved as one deliberate batch citing CONTRACT.md + LEDGER.
+P1.1–P1.7 and P1.9 are **done and verified** (all three engines compile; memorydb tests green). The
+only SAFE work left is the cross-engine + real-mongod remainder of **P1.8** — parameterize the
+conformance suite across Mongo/SQL (stub permission provider) + the Testcontainers write-failure test.
+Phase 2 (BREAKING — P2.1 delete de-dup, P2.2 hook-order convergence, P2.3 `onAfterOpen`) is
+**unblocked** and should be approved as one deliberate batch citing CONTRACT.md + LEDGER; it flips the
+remaining **(target)** statuses to **Enforced**.

@@ -517,6 +517,12 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
     /**
      * Performs a bulk write operation asynchronously on the provided list of write models.
      *
+     * **Raw escape hatch (CONTRACT.md I7):** this bypasses **all** lifecycle hooks, the permission and
+     * [allowApiCrud] gates, change-logging, and constructor-only-persistence stripping — it writes the
+     * given [WriteModel]s straight to the driver on a detached background coroutine. It is **not** part
+     * of the write-control story, and an `allowApiCrud` lockdown provides no protection against it. Use
+     * only for trusted, server-side batch-performance work.
+     *
      * @param writeModels A mutable list of write models to be written in bulk.
      * @param debug A boolean flag indicating whether to print debug information. Default is false.
      */
@@ -1330,6 +1336,12 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
     /**
      * Updates the fields of an item identified by its ID with the specified field assignments.
      *
+     * **Mongo-only / engine-coupled (CONTRACT.md I7, N6):** this method exists only on [Coll] — there
+     * is no `SqlRepository`/`InMemoryRepository` equivalent — so domain-service code built on it is
+     * coupled to MongoDB. As a low-level service-tier method it runs the full hook / validation /
+     * change-log lifecycle but **bypasses** the generic-CRUD gate ([allowApiCrud]); a non-null [call]
+     * engages the per-action permission check.
+     *
      * @param call An optional [ApplicationCall] used for permission checks or additional context during the update operation.
      * @param id The identifier of the item to be updated.
      * @param fieldAssignments A variable number of field assignments specifying the fields to update and their new values.
@@ -1436,6 +1448,10 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
      * Updates multiple documents in the collection that match the specified filter using the provided update pipeline.
      *
      * Note: this method is not intended for general use but is rather a helper method to support specific use cases.
+     *
+     * **Raw escape hatch (CONTRACT.md I7):** this bypasses **all** lifecycle hooks, the permission and
+     * [allowApiCrud] gates, change-logging, and body-property stripping, writing directly to the driver.
+     * It is **not** part of the write-control story.
      *
      * https://www.mongodb.com/docs/manual/tutorial/update-documents-with-aggregation-pipeline/
      *

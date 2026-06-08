@@ -192,10 +192,10 @@ class InMemoryRepositoryTest {
 
     // ── Generic-CRUD gate (CONTRACT.md I5) ──────────────────────
 
-    /** Repository whose generic-CRUD gate is closed (rejects every generic write). */
+    /** Repository whose generic-CRUD gate is closed (rejects every generic write via [denyApiCrud]). */
     private fun gateClosedRepo() = object : InMemoryRepository<TestItem, String, ApiFilter, String>(CommonTestItem) {
         override suspend fun allowApiCrud(apiItem: ApiItem.Action<TestItem, String, ApiFilter>): SimpleState =
-            SimpleState(state = State.Error, msgError = "not writable via the generic API")
+            denyApiCrud()
     }
 
     @Test

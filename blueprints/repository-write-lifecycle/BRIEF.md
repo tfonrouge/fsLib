@@ -39,10 +39,10 @@ Severity and status as verified by the two analysis workflows. **F-series** = ca
 | N1 | High | Open | An `apiItemProcess` override gates only the remote path; six other public write methods bypass it. Completeness rests on the undocumented invariant "remote CRUD routes exclusively through `apiItemProcess`" (true today via `StandardCrudService`). |
 | N2 | High (missing abstraction) | Open | Hooks are **origin-blind** — they converge, so "allow from service, reject from remote" is inexpressible via a hook; the only origin-aware seam is the whole `apiItemProcess` dispatcher → forces a coarse whole-method override. |
 | N3 | Medium | Open | The low-level/service path is implicitly **permission-trusted** when `call == null` (`CollPermission.kt:22-25`); SQL/memory skip the check entirely; the three agree only by accident. Undocumented. |
-| N4 | Low | Partly preempted | `readOnly` blocks **both** tiers, so it can't express "generic closed, service open" — the developer correctly avoided it. The framework still lacks distinct vocabulary for the generic-only concept. |
+| N4 | Low | Addressed (P1.6) | `readOnly` blocks **both** tiers, so it can't express "generic closed, service open" — the developer correctly avoided it. `IRepository` now provides `apiCrudDisabledErrorMsg` + `denyApiCrud()` as distinct vocabulary. |
 | N5 | Medium (cross-link) | Open | The blessed service tier writes exclusively through `updateFieldsById`/`updateOne` — exactly the methods carrying F1's residue and F3's divergence. **Raises F1/F3 priority**: they are on the supported hot path, not rare edges. |
-| N6 | Medium | Open | `updateFieldsById` is **Mongo-only**; services built on it are engine-coupled and cannot move to SQL/memory without rewrite. |
-| N7 | Medium | Open | `updateMany`/`bulkWrite` bypass all hooks, permissions, changelog, and the gate — by design, but undocumented escape hatches. |
+| N6 | Medium | Documented (P1.7) | `updateFieldsById` is **Mongo-only**; services built on it are engine-coupled and cannot move to SQL/memory without rewrite. Now noted in its KDoc. |
+| N7 | Medium | Documented (P1.7) | `updateMany`/`bulkWrite` bypass all hooks, permissions, changelog, and the gate — by design; now documented as raw escape hatches in their KDoc. |
 | N8 | High | Fixed (P1.9) | SQL remote Action writes skipped the per-action CRUD permission check that Mongo enforces — a SQL repo behind the same RPC surface was less protected. Now checked in `SqlRepository.apiItemProcess` Action branch (no-op without a configured provider). In-memory stays intentionally permission-free. |
 
 ## Scope

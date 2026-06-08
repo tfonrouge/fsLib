@@ -427,6 +427,25 @@ interface IRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any
      */
     suspend fun allowApiCrud(apiItem: ApiItem.Action<T, ID, FILT>): SimpleState = SimpleState(isOk = true)
 
+    /**
+     * Error message for an [allowApiCrud] rejection — the "writable only via domain services" state.
+     * A **distinct concept** from [readOnlyErrorMsg]: the entity *is* writable, just not through the
+     * generic/remote API. Override to customize; never reuse the read-only message (CONTRACT.md N4).
+     */
+    val apiCrudDisabledErrorMsg: String
+        get() = "${commonContainer.labelItem} is not writable via the generic API"
+
+    /**
+     * Convenience for [allowApiCrud] overrides that close the generic-CRUD surface, e.g.
+     * `override suspend fun allowApiCrud(apiItem) = denyApiCrud()`. Returns an error [SimpleState]
+     * carrying [apiCrudDisabledErrorMsg] — distinct from the read-only state.
+     *
+     * @param msg The rejection message; defaults to [apiCrudDisabledErrorMsg].
+     * @return an error [SimpleState] that rejects the generic write.
+     */
+    fun denyApiCrud(msg: String = apiCrudDisabledErrorMsg): SimpleState =
+        SimpleState(isOk = false, msgError = msg)
+
     // ── Nested Types ──────────────────────────────────────────
 
     /**
