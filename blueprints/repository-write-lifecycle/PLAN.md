@@ -10,9 +10,9 @@
 - **P1.4 (contract KDoc)** precedes all of Phase 2 — the breaking steps cite it.
 - **P1.3 (memory gains `findChildrenNot`)** precedes **P2.1** — so removing the Mongo/SQL
   double-check never leaves memory at zero checks.
-- **P1.8 (conformance suite)** is scaffolded in Phase 1 asserting the *target* contract; its
-  hook-order and single-owner-delete assertions are enabled as **P2.1/P2.2** land (they will fail
-  until then — that is the intended red→green tripwire).
+- **P1.8 (conformance suite)** is scaffolded in Phase 1; its hook-order and single-owner-delete
+  assertions are **assume-gated (reported skipped) per engine** until **P2.1/P2.2** land, then flip
+  to live assertions — the intended red→green tripwire, with no committed failing tests.
 
 ---
 
@@ -34,7 +34,7 @@
 | **P1.5** | **`allowApiCrud`** — add `suspend fun allowApiCrud(apiItem: ApiItem.Action<T,ID,FILT>): SimpleState = SimpleState(isOk = true)` to `IRepository` (default in interface); invoke once at the top of the `apiItemProcess` Action branch in all three engines. | `IRepository.kt`, `Coll.kt`, `SqlRepository.kt`, `InMemoryRepository.kt` | N1, N2, D4, I5 | ✅ done |
 | **P1.6** | Distinct vocabulary/message for the generic-only lockdown, never the `readOnly` message. Added `IRepository.apiCrudDisabledErrorMsg` (default-overridable) + `denyApiCrud()` helper; the gate conformance test uses it. | `IRepository.kt`, `InMemoryRepositoryTest.kt` | N4, I5 naming rule | ✅ done |
 | **P1.7** | KDoc `updateMany` + `bulkWrite` as ungated/unhooked escape hatches; KDoc `updateFieldsById` as Mongo-only/engine-coupling. | `Coll.kt` `bulkWrite`/`updateMany`/`updateFieldsById` | N6, N7, I7 | ✅ done |
-| **P1.8** | **Cross-engine conformance suite** (parameterized over Mongo/SQL/InMemory, hosted dependency-free in memorydb) + one real-mongod write-failure test (Testcontainers preferred). Asserts: gate (Action rejected when closed / Read allowed / low-level `insertOne` still succeeds / `call==null` passes permission), validation-failure ⇒ no changelog + no success after-hooks, exactly-once delete check, and (enabled with Phase 2) canonical hook order. | new test module | D6, locks F1/F2/N1, I1–I6 | ⏳ in progress — portable subset landed in memorydb (`gateClosedBlocksGenericWritesButNotReadsOrService` pins I5; `validationFailureFiresNoAfterHooksAndNoWrite` pins I2). Pending: parameterize across Mongo/SQL, real-mongod write-failure (Testcontainers), and hook-order/exactly-once assertions (enabled with P2.1/P2.2). |
+| **P1.8** | **Cross-engine conformance suite** in a dedicated `:conformance` module (D9): engine-agnostic assertions run against InMemory + SQL (via H2, no Docker); target invariants not yet converged in an engine are skipped via JUnit `Assume` until P2.x (no committed failing tests). Plus a real-mongod write-failure test (C, deferred). Asserts: gate (Action rejected when closed / Read allowed / low-level `insertOne` succeeds / `call==null` passes permission), validation-failure ⇒ no changelog + no success after-hooks, exactly-once delete check, canonical hook order. | `:conformance` module | D6, D9, locks F1/F2/N1, I1–I6 | ⏳ in progress — landed: `:conformance` scaffold + SQL/H2 smoke proof (`SqlOnH2SmokeTest`); memory hook-order pins (in memorydb, I1). Next: engine-agnostic harness (gate/validation/permission-parity/hook-order/delete-once) across memory + SQL. Deferred: mockk (with the permission-parity test) + Mongo real-server (C). |
 | **P1.9** | Close the SQL remote-write permission gap (N8): run the per-action CRUD permission check in `SqlRepository.apiItemProcess` Action branch, matching its Query branch + Mongo. Document the in-memory engine's intentional permission exemption (CONTRACT I6). | `SqlRepository.kt` apiItemProcess Action | N8 (new), I6, D8 | ✅ done — no-op without a configured `rolePermissionProvider`; cross-engine permission pin pending P1.8 |
 
 **Recommended approval boundary:** the full SAFE batch — P1.1–P1.7 and P1.9 — is now landed (commits

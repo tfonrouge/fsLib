@@ -4,6 +4,7 @@ import com.fonrouge.base.api.ApiFilter
 import com.fonrouge.base.api.ApiItem
 import com.fonrouge.base.api.ApiList
 import com.fonrouge.base.api.IApiItem
+import com.fonrouge.base.state.ItemState
 import com.fonrouge.base.state.SimpleState
 import com.fonrouge.base.state.State
 import com.fonrouge.fullStack.repository.IRepository
@@ -279,6 +280,90 @@ class InMemoryRepositoryTest {
         assertNull(repo.findById("v1", ApiFilter()), "a validation failure must not persist anything")
         assertFalse(repo.afterCreateFired, "a validation failure must not fire onAfterCreateAction")
         assertFalse(repo.afterUpsertFired, "a validation failure must not fire onAfterUpsertAction")
+    }
+
+    // ── Canonical hook order (CONTRACT.md I1) ───────────────────
+
+    /**
+     * Records the order in which lifecycle hooks fire. The in-memory engine already satisfies the
+     * canonical order (shared `Upsert` hook outermost, symmetric create/update); this is the
+     * executable spec and the red→green tripwire for the Mongo/SQL convergence in P2.2.
+     */
+    private class RecordingRepo : InMemoryRepository<TestItem, String, ApiFilter, String>(CommonTestItem) {
+        val calls = mutableListOf<String>()
+        override suspend fun onQueryUpsert(apiItem: ApiItem.Query<TestItem, String, ApiFilter>, orig: TestItem?): SimpleState {
+            calls += "onQueryUpsert"; return super.onQueryUpsert(apiItem, orig)
+        }
+
+        override suspend fun onQueryCreate(apiItem: ApiItem.Query.Create<TestItem, String, ApiFilter>): SimpleState {
+            calls += "onQueryCreate"; return super.onQueryCreate(apiItem)
+        }
+
+        override suspend fun onQueryUpdate(apiItem: ApiItem.Query.Update<TestItem, String, ApiFilter>, orig: TestItem): SimpleState {
+            calls += "onQueryUpdate"; return super.onQueryUpdate(apiItem, orig)
+        }
+
+        override suspend fun onBeforeUpsertAction(apiItem: ApiItem.Action<TestItem, String, ApiFilter>, orig: TestItem?): ItemState<TestItem> {
+            calls += "onBeforeUpsertAction"; return super.onBeforeUpsertAction(apiItem, orig)
+        }
+
+        override suspend fun onBeforeCreateAction(apiItem: ApiItem.Action.Create<TestItem, String, ApiFilter>): ItemState<TestItem> {
+            calls += "onBeforeCreateAction"; return super.onBeforeCreateAction(apiItem)
+        }
+
+        override suspend fun onBeforeUpdateAction(apiItem: ApiItem.Action.Update<TestItem, String, ApiFilter>, orig: TestItem): ItemState<TestItem> {
+            calls += "onBeforeUpdateAction"; return super.onBeforeUpdateAction(apiItem, orig)
+        }
+
+        override suspend fun onValidate(apiItem: ApiItem.Action<TestItem, String, ApiFilter>, item: TestItem): SimpleState {
+            calls += "onValidate"; return super.onValidate(apiItem, item)
+        }
+
+        override suspend fun onAfterCreateAction(apiItem: ApiItem.Action.Create<TestItem, String, ApiFilter>, result: Boolean) {
+            calls += "onAfterCreateAction"; super.onAfterCreateAction(apiItem, result)
+        }
+
+        override suspend fun onAfterUpdateAction(apiItem: ApiItem.Action.Update<TestItem, String, ApiFilter>, orig: TestItem, result: Boolean) {
+            calls += "onAfterUpdateAction"; super.onAfterUpdateAction(apiItem, orig, result)
+        }
+
+        override suspend fun onAfterUpsertAction(apiItem: ApiItem.Action<TestItem, String, ApiFilter>, orig: TestItem?, result: Boolean) {
+            calls += "onAfterUpsertAction"; super.onAfterUpsertAction(apiItem, orig, result)
+        }
+    }
+
+    @Test
+    fun createHookOrderIsUpsertOutermost() = runTest {
+        val repo = RecordingRepo()
+        repo.insertOne(TestItem(_id = "h1", name = "X"), ApiFilter())
+        assertEquals(
+            listOf(
+                "onQueryUpsert", "onQueryCreate",
+                "onBeforeUpsertAction", "onBeforeCreateAction",
+                "onValidate",
+                "onAfterCreateAction", "onAfterUpsertAction",
+            ),
+            repo.calls,
+            "create: shared Upsert hook outermost — before upsert→specific, after specific→upsert",
+        )
+    }
+
+    @Test
+    fun updateHookOrderIsUpsertOutermost() = runTest {
+        val repo = RecordingRepo()
+        repo.seed(listOf(TestItem(_id = "h1", name = "X")))
+        repo.calls.clear()
+        repo.updateOne(TestItem(_id = "h1", name = "Y"), ApiFilter())
+        assertEquals(
+            listOf(
+                "onQueryUpsert", "onQueryUpdate",
+                "onBeforeUpsertAction", "onBeforeUpdateAction",
+                "onValidate",
+                "onAfterUpdateAction", "onAfterUpsertAction",
+            ),
+            repo.calls,
+            "update: shared Upsert hook outermost — symmetric with create",
+        )
     }
 
     // ── ReadOnly ────────────────────────────────────────────────
