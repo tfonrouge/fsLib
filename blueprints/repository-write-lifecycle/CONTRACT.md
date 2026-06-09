@@ -67,20 +67,20 @@ write paths comply — `Coll.insertOne` (P1.1) and `Coll.updateOne`/`updateField
 
 ## I3 — Dependency safety: exactly once, unbypassable, owned by `deleteOne`
 
-**Status: Partially enforced** (LEDGER D1, PLAN P2.1). Every engine now refuses to delete a parent
-that still has children (the in-memory engine via P1.3); the "exactly once, owned solely by the
-concrete `deleteOne`" end-state is pending Mongo/SQL de-duplication.
+**Status: Behaviorally enforced** (all engines; LEDGER D1, PLAN P2.1). Every engine refuses to
+delete a parent that still has children, and the check runs exactly once, owned solely by the
+concrete `deleteOne`. The memory + SQL conformance pin is live; Mongo real-server participation is
+pending PLAN P1.8 / C.
 
 A parent with existing children is refused (`State.Error`), and the authoritative check lives in the
 concrete `deleteOne` (action tier), **not** in `onQueryDelete`. `onQueryDelete`'s default is a plain
 `isOk` gate; it must **not** be the sole owner of dependency safety (so a subclass override cannot
-silently disable it). Target end-state: `findChildrenNot` runs **exactly once** on every delete in
+silently disable it). Required end-state: `findChildrenNot` runs **exactly once** on every delete in
 every engine.
 
-Decision: see LEDGER **D1**. The in-memory engine now performs this check once in its concrete
-`deleteOne` (P1.3); Mongo/SQL currently check twice (via the `onQueryDelete` default *and* the direct
-call in `deleteOne`). The end state — one engine-owned check everywhere — lands when Mongo/SQL drop
-the redundant prepare-phase check (P2.1).
+Decision: see LEDGER **D1**. The in-memory engine performs this check once in its concrete
+`deleteOne` (P1.3); P2.1 removed the redundant prepare-phase check from Mongo/SQL defaults, so the
+end state — one engine-owned check everywhere — is now in force.
 
 > Optional, non-authoritative: the `apiItemProcess` Query.Delete "prepare" phase MAY run an
 > *advisory* dependency pre-check for early UX feedback, but it never replaces the `deleteOne`

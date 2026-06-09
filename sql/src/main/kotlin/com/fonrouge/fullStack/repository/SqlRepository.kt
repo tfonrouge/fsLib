@@ -498,7 +498,7 @@ abstract class SqlRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UI
         SimpleState(isOk = true)
 
     override suspend fun onQueryDelete(apiItem: ApiItem.Query.Delete<T, ID, FILT>, item: T): SimpleState =
-        findChildrenNot(item).asSimpleState
+        SimpleState(state = State.Ok)
 
     override suspend fun onQueryUpsert(apiItem: ApiItem.Query<T, ID, FILT>, orig: T?): SimpleState =
         SimpleState(isOk = true)

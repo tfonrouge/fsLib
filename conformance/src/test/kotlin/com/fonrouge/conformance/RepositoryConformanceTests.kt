@@ -31,7 +31,8 @@ import kotlin.test.assertTrue
  *   (I6, `enforcesPermissions`) and the change-log positive control (I2, `writesChangeLog`).
  * - **Target / assume-gated** — skipped (reported "pending P2.x") on engines that have not converged
  *   yet, so no failing tests are committed before Phase 2: canonical hook order (I1,
- *   `enforcesCanonicalHookOrder`) and delete-exactly-once (I3, `enforcesDeleteExactlyOnce`).
+ *   `enforcesCanonicalHookOrder`). Delete-exactly-once (I3, `enforcesDeleteExactlyOnce`) is live for
+ *   the current memory + SQL engines and remains profile-gated for future engines.
  */
 abstract class RepositoryConformanceTests {
 
@@ -231,7 +232,7 @@ abstract class RepositoryConformanceTests {
     @Test
     fun dependencyCheckRunsExactlyOncePerDelete() = runTest {
         Assume.assumeTrue(
-            "I3 single-owner delete pending P2.1 for ${fixture.profile.name}",
+            "I3 single-owner delete not enforced for ${fixture.profile.name}",
             fixture.profile.enforcesDeleteExactlyOnce,
         )
         val dep = fixture.dependencyFixture()

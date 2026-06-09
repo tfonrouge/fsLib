@@ -44,8 +44,8 @@ import kotlin.reflect.KProperty1
  *   *Upsert* hook is outermost. Rollout: Mongo/SQL `updateOne` before-hooks and Mongo
  *   `updateFieldsById` query gates still differ — see PLAN P2.2.
  * - **Dependency safety.** [findChildrenNot] blocks deleting a parent that still has children, in
- *   every engine. **(target:** run *exactly once*, owned solely by the concrete [deleteOne] —
- *   Mongo/SQL currently also check via [onQueryDelete]; see PLAN P2.1**)**
+ *   every engine. It runs *exactly once*, owned solely by the concrete [deleteOne], not by the
+ *   query-phase [onQueryDelete] hook.
  * - **Permissions.** On the generic/remote path a non-null `call` engages the per-action CRUD
  *   permission check (after `allowApiCrud`); when `call` is null (the trusted service tier) the check
  *   is a documented no-op. The in-memory engine is intentionally permission-free (samples/tests).

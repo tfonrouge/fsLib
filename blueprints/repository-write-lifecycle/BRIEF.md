@@ -31,7 +31,7 @@ Severity and status as verified by the two analysis workflows. **F-series** = ca
 | ID | Severity | Status | Summary |
 |----|----------|--------|---------|
 | F1 | High | Fixed (P1.1, P1.2) | `Coll.insertOne` wrote a phantom changelog on failed/validation-rejected insert (fixed P1.1). `updateOne`/`updateFieldsById` now hoist `onValidate`+strip above the write `try` (P1.2) — safe by structure, not coincidence. |
-| F2 | **High (the one true Violation)** | Fixed (P1.3) | `InMemoryRepository.deleteOne` now calls `findChildrenNot` (P1.3) — a parent-with-children can no longer be deleted silently; pinned by `deleteBlockedWhenChildrenExist`. Mongo/SQL still check **twice** — de-duplication is P2.1. |
+| F2 | **High (the one true Violation)** | Fixed (P1.3, P2.1) | `InMemoryRepository.deleteOne` now calls `findChildrenNot` (P1.3) — a parent-with-children can no longer be deleted silently; pinned by `deleteBlockedWhenChildrenExist`. P2.1 removes the redundant Mongo/SQL prepare-phase check so `deleteOne` owns dependency safety exactly once. |
 | F3 | High | Open | Create vs update before-hook order diverges: Mongo/SQL `updateOne` = specific→upsert; memory = upsert→specific; Mongo `updateFieldsById` query gates inverted. Hooks mutate the item, so order is behaviorally load-bearing. |
 | F4 | Non-issue | **Refuted** | The update-path validation return is safe today (non-local return exits before any after-hook/changelog). Not a live bug; do not treat as one. |
 | F5 | High | Open | `Coll` init runs `onAfterOpen()`/`indexes()` fire-and-forget with swallowed errors and no readiness signal; `SqlRepository`/`InMemoryRepository` `onAfterOpen()` is never auto-invoked. |

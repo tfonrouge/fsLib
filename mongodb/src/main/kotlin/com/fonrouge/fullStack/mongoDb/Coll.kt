@@ -1182,12 +1182,12 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
      *
      * @param apiItem The API query object representing the delete operation, containing metadata such as type, ID, and filters.
      * @param item The item of type T that is being queried for deletion.
-     * @return the result of item having no children so it can be safely deleted
+     * @return whether the delete query gate permits the operation
      */
     override suspend fun onQueryDelete(
         apiItem: ApiItem.Query.Delete<T, ID, FILT>,
         item: T
-    ): SimpleState = findChildrenNot(item).asSimpleState
+    ): SimpleState = SimpleState(state = State.Ok)
 
     /**
      * Handles the read permission check for the given API item.
