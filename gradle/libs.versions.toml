@@ -1,6 +1,7 @@
 [versions]
 exposedCore = "0.61.0"
 fsLib = "3.4.0"
+h2 = "2.2.224"
 jtds = "1.3.1"
 junit = "4.13.2"
 kiluaRpcVersion = "0.0.43"
@@ -13,6 +14,7 @@ kspVersion = "2.3.5"
 ktor = "3.4.0"
 kvision = "9.5.0"
 logbackClassic = "1.5.20"
+mockk = "1.13.13"
 mssqlJdbc = "9.4.1.jre8"
 serialization = "1.10.0"
 
@@ -21,6 +23,7 @@ exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "e
 exposed-dao = { module = "org.jetbrains.exposed:exposed-dao", version.ref = "exposedCore" }
 exposed-java-time = { module = "org.jetbrains.exposed:exposed-java-time", version.ref = "exposedCore" }
 exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposedCore" }
+h2 = { module = "com.h2database:h2", version.ref = "h2" }
 jtds = { module = "net.sourceforge.jtds:jtds", version.ref = "jtds" }
 junit = { module = "junit:junit", version.ref = "junit" }
 kilua-rpc-ktor = { module = "dev.kilua:kilua-rpc-ktor", version.ref = "kiluaRpcVersion" }
@@ -85,6 +88,7 @@ kvision-toastify = { module = "io.kvision:kvision-toastify", version.ref = "kvis
 kvision-tom-select = { module = "io.kvision:kvision-tom-select", version.ref = "kvision" }
 kvision-tom-select-remote = { module = "io.kvision:kvision-tom-select-remote", version.ref = "kvision" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logbackClassic" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 mssql-jdbc = { module = "com.microsoft.sqlserver:mssql-jdbc", version.ref = "mssqlJdbc" }
 
 [plugins]

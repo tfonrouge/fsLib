@@ -15,11 +15,12 @@ kotlin {
     jvmToolchain(21)
 }
 
-// Test-only module (not published): scaffold for the cross-engine conformance suite that will pin
-// the IRepository write/delete/lifecycle contract (blueprints/repository-write-lifecycle/CONTRACT.md,
-// LEDGER D9). Currently a SQL/H2 smoke test proving SqlRepository runs without Docker. The
-// engine-agnostic assertion harness (memory + SQL), the permission-parity test (which adds mockk),
-// and Mongo participation (real-mongod decision, PLAN P1.8 / C) are pending follow-ups.
+// Test-only module (not published): cross-engine conformance suite pinning the IRepository
+// write/delete/lifecycle contract (blueprints/repository-write-lifecycle/CONTRACT.md, LEDGER D9).
+// Runs engine-agnostic assertions against the memory + SQL (H2, no Docker) engines: the generic-CRUD
+// gate (I5), per-action permission parity (I6), and canonical hook order (I1, assume-gated/skipped on
+// SQL until P2.2). Remaining: validation side-effect (I2) + delete-exactly-once (I3) assertions, and
+// Mongo participation (real-mongod decision, PLAN P1.8 / C).
 dependencies {
     testImplementation(project(":core"))
     testImplementation(project(":fullstack")) {
@@ -40,11 +41,12 @@ dependencies {
     // Exposed + H2 so SqlRepository can run against an in-memory SQL engine (no Docker).
     testImplementation(libs.exposed.core)
     testImplementation(libs.exposed.jdbc)
-    testImplementation("com.h2database:h2:2.2.224")
+    testImplementation(libs.h2)
 
-    // NOTE: mockk (for a non-null ApplicationCall in permission-parity tests) is added when that
-    // test lands — see PLAN P1.8 / LEDGER D9.
+    // mockk supplies a non-null ApplicationCall for the per-action permission-parity test.
+    testImplementation(libs.mockk)
 
     testImplementation(kotlin("test"))
+    testImplementation(libs.junit) // org.junit.Assume for assume-gated target tests
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
 }
