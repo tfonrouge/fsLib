@@ -114,6 +114,46 @@ abstract class RepositoryConformanceTests {
         }
     }
 
+    // ── I2: validation gates the write, side-effect-free (universal) ──
+
+    @Test
+    fun createValidationFailureIsSideEffectFree() = runTest {
+        val name = fixture.profile.name
+        val repo = fixture.validatingRepo()
+        val probe = repo as ValidationProbe
+
+        val result = repo.insertOne(CItem("v1", VALIDATION_REJECT_NAME, 1.0), ApiFilter())
+
+        assertTrue(result.hasError, "$name: a create validation failure must surface an error")
+        assertNull(repo.findById("v1", ApiFilter()), "$name: nothing must persist")
+        assertTrue(probe.afterHookCalls.isEmpty(), "$name: no after-hooks (got ${probe.afterHookCalls})")
+        assertEquals(0, probe.changeLogProbe.calls, "$name: no change-log entry on validation failure")
+    }
+
+    @Test
+    fun updateValidationFailureIsSideEffectFree() = runTest {
+        val name = fixture.profile.name
+        val repo = fixture.validatingRepo()
+        val probe = repo as ValidationProbe
+
+        // Seed a valid row via the normal write path (this DOES fire after-hooks + change-log).
+        assertFalse(repo.insertOne(CItem("u1", "Valid", 1.0), ApiFilter()).hasError, "$name: seed must succeed")
+        if (fixture.profile.writesChangeLog) {
+            // Positive control: proves the probe is actually wired and fires on a real write.
+            assertEquals(1, probe.changeLogProbe.calls, "$name: a successful write must log a change")
+        }
+        probe.afterHookCalls.clear()
+        probe.changeLogProbe.calls = 0
+
+        // A validation-failing update must not change the row, fire after-hooks, or log.
+        val result = repo.updateOne(CItem("u1", VALIDATION_REJECT_NAME, 2.0), ApiFilter())
+
+        assertTrue(result.hasError, "$name: an update validation failure must surface an error")
+        assertEquals("Valid", repo.findById("u1", ApiFilter())?.name, "$name: the row must be unchanged")
+        assertTrue(probe.afterHookCalls.isEmpty(), "$name: no after-hooks (got ${probe.afterHookCalls})")
+        assertEquals(0, probe.changeLogProbe.calls, "$name: no change-log entry on validation failure")
+    }
+
     // ── I1: canonical hook order (target — assume-gated) ────────
 
     @Test

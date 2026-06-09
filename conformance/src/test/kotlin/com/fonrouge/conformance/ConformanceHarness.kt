@@ -8,6 +8,7 @@ import com.fonrouge.base.sqlDb.SqlDatabase
 import com.fonrouge.base.state.ItemState
 import com.fonrouge.base.state.SimpleState
 import com.fonrouge.fullStack.memoryDb.InMemoryRepository
+import com.fonrouge.fullStack.repository.IChangeLogRepository
 import com.fonrouge.fullStack.repository.IRepository
 import com.fonrouge.fullStack.repository.IUserRepository
 import com.fonrouge.fullStack.repository.SqlRepository
@@ -77,11 +78,38 @@ data class EngineProfile(
     val enforcesPermissions: Boolean,
     /** I1: canonical hook order (shared Upsert outermost). memory=true, sql=false (pending P2.2). */
     val enforcesCanonicalHookOrder: Boolean,
+    /** I2: does the engine call `buildChangeLog` at all? memory=false (no changelog), sql=true. */
+    val writesChangeLog: Boolean,
 )
 
 /** Exposes the recorded lifecycle-hook call order from an instrumented repository. */
 interface HookLog {
     val calls: MutableList<String>
+}
+
+/** Sentinel name that an instrumented [ValidationProbe] repository rejects in `onValidate`. Using a
+ *  sentinel (rather than rejecting everything) lets a valid row be seeded via the normal write path
+ *  so the *update* validation case can be exercised too. */
+const val VALIDATION_REJECT_NAME = "INVALID"
+
+/** Exposes the after-hook firing + change-log probe of a repository whose `onValidate` rejects items
+ *  named [VALIDATION_REJECT_NAME]. */
+interface ValidationProbe {
+    val afterHookCalls: MutableList<String>
+    val changeLogProbe: ChangeLogProbe
+}
+
+/** Fake [IChangeLogRepository] that counts `buildChangeLog` invocations. */
+class ChangeLogProbe : IChangeLogRepository {
+    var calls = 0
+    override suspend fun <CC : ICommonContainer<T, ID, *>, T : BaseDoc<ID>, ID : Any> buildChangeLog(
+        cc: CC,
+        apiItem: ApiItem.Action<T, ID, *>,
+        orig: T?,
+    ): SimpleState {
+        calls++
+        return SimpleState(isOk = true)
+    }
 }
 
 /** Supplies engine-specific repositories + profile to the engine-agnostic conformance tests. */
@@ -96,6 +124,10 @@ interface ConformanceFixture {
 
     /** A repository that also implements [HookLog], recording lifecycle-hook call order. */
     fun recordingRepo(): IRepository<CItem, String, ApiFilter, String>
+
+    /** A repository whose `onValidate` rejects the validation sentinel ([VALIDATION_REJECT_NAME]);
+     *  also implements [ValidationProbe]. */
+    fun validatingRepo(): IRepository<CItem, String, ApiFilter, String>
 }
 
 // ── Hook-recording overrides (shared shape, per engine base) ──
@@ -147,12 +179,34 @@ private class RecordingMemoryRepository : CItemMemoryRepository(), HookLog {
     }
 }
 
+private class ValidatingMemoryRepository : CItemMemoryRepository(), ValidationProbe {
+    override val afterHookCalls = mutableListOf<String>()
+    override val changeLogProbe = ChangeLogProbe()
+    override val changeLogCollFun: () -> IChangeLogRepository? = { changeLogProbe }
+
+    override suspend fun onValidate(apiItem: ApiItem.Action<CItem, String, ApiFilter>, item: CItem): SimpleState =
+        if (item.name == VALIDATION_REJECT_NAME) SimpleState(isOk = false, msgError = "invalid") else SimpleState(isOk = true)
+
+    override suspend fun onAfterCreateAction(apiItem: ApiItem.Action.Create<CItem, String, ApiFilter>, result: Boolean) {
+        afterHookCalls += "onAfterCreateAction"; super.onAfterCreateAction(apiItem, result)
+    }
+
+    override suspend fun onAfterUpdateAction(apiItem: ApiItem.Action.Update<CItem, String, ApiFilter>, orig: CItem, result: Boolean) {
+        afterHookCalls += "onAfterUpdateAction"; super.onAfterUpdateAction(apiItem, orig, result)
+    }
+
+    override suspend fun onAfterUpsertAction(apiItem: ApiItem.Action<CItem, String, ApiFilter>, orig: CItem?, result: Boolean) {
+        afterHookCalls += "onAfterUpsertAction"; super.onAfterUpsertAction(apiItem, orig, result)
+    }
+}
+
 /** Memory engine fixture — permission-free (I6 exempt), canonical hook order already enforced (I1). */
 class MemoryConformanceFixture : ConformanceFixture {
-    override val profile = EngineProfile(name = "InMemory", enforcesPermissions = false, enforcesCanonicalHookOrder = true)
+    override val profile = EngineProfile(name = "InMemory", enforcesPermissions = false, enforcesCanonicalHookOrder = true, writesChangeLog = false)
     override fun freshRepo(): IRepository<CItem, String, ApiFilter, String> = CItemMemoryRepository()
     override fun gateClosedRepo(): IRepository<CItem, String, ApiFilter, String> = GateClosedMemoryRepository()
     override fun recordingRepo(): IRepository<CItem, String, ApiFilter, String> = RecordingMemoryRepository()
+    override fun validatingRepo(): IRepository<CItem, String, ApiFilter, String> = ValidatingMemoryRepository()
 }
 
 private class GateClosedSqlRepository(sqlDatabase: SqlDatabase) : CItemSqlRepository(sqlDatabase) {
@@ -202,10 +256,32 @@ private class RecordingSqlRepository(sqlDatabase: SqlDatabase) : CItemSqlReposit
     }
 }
 
+private class ValidatingSqlRepository(sqlDatabase: SqlDatabase) : CItemSqlRepository(sqlDatabase), ValidationProbe {
+    override val afterHookCalls = mutableListOf<String>()
+    override val changeLogProbe = ChangeLogProbe()
+    override val changeLogCollFun: () -> IChangeLogRepository? = { changeLogProbe }
+
+    override suspend fun onValidate(apiItem: ApiItem.Action<CItem, String, ApiFilter>, item: CItem): SimpleState =
+        if (item.name == VALIDATION_REJECT_NAME) SimpleState(isOk = false, msgError = "invalid") else SimpleState(isOk = true)
+
+    override suspend fun onAfterCreateAction(apiItem: ApiItem.Action.Create<CItem, String, ApiFilter>, result: Boolean) {
+        afterHookCalls += "onAfterCreateAction"; super.onAfterCreateAction(apiItem, result)
+    }
+
+    override suspend fun onAfterUpdateAction(apiItem: ApiItem.Action.Update<CItem, String, ApiFilter>, orig: CItem, result: Boolean) {
+        afterHookCalls += "onAfterUpdateAction"; super.onAfterUpdateAction(apiItem, orig, result)
+    }
+
+    override suspend fun onAfterUpsertAction(apiItem: ApiItem.Action<CItem, String, ApiFilter>, orig: CItem?, result: Boolean) {
+        afterHookCalls += "onAfterUpsertAction"; super.onAfterUpsertAction(apiItem, orig, result)
+    }
+}
+
 /** SQL engine fixture (H2-backed) — enforces permissions (I6/P1.9); hook order pending P2.2 (I1). */
 class SqlConformanceFixture : ConformanceFixture {
-    override val profile = EngineProfile(name = "SQL", enforcesPermissions = true, enforcesCanonicalHookOrder = false)
+    override val profile = EngineProfile(name = "SQL", enforcesPermissions = true, enforcesCanonicalHookOrder = false, writesChangeLog = true)
     override fun freshRepo(): IRepository<CItem, String, ApiFilter, String> = CItemSqlRepository(createH2CItemDatabase())
     override fun gateClosedRepo(): IRepository<CItem, String, ApiFilter, String> = GateClosedSqlRepository(createH2CItemDatabase())
     override fun recordingRepo(): IRepository<CItem, String, ApiFilter, String> = RecordingSqlRepository(createH2CItemDatabase())
+    override fun validatingRepo(): IRepository<CItem, String, ApiFilter, String> = ValidatingSqlRepository(createH2CItemDatabase())
 }
