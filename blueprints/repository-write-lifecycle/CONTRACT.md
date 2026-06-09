@@ -118,8 +118,8 @@ The repository has two write tiers with a **one-directional** dependency:
   `apiItemProcess` (a back-edge would be circular). This direction is a guaranteed invariant.
 - **`allowApiCrud(apiItem: ApiItem.Action): SimpleState`** (default `isOk`) is invoked **once** at
   the top of the `apiItemProcess` Action branch in every engine — after `asApiItem` and the
-  `readOnly` gate, before action dispatch, the per-action CRUD permission check, and the write
-  lifecycle hooks. It is the supported seam for origin-scoped write policy ("writable only via domain
+  `readOnly` gate, before action dispatch, any applicable per-action CRUD permission check, and the
+  write lifecycle hooks. It is the supported seam for origin-scoped write policy ("writable only via domain
   services"): a subclass overrides `allowApiCrud`, **not** the whole dispatcher. Decision: see
   LEDGER **D4** (supersedes the whole-method override; addresses N1, N2).
 - The remote surface (`StandardCrudService` + Kilua RPC) routes **only** through

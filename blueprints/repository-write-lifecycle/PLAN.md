@@ -37,11 +37,12 @@
 | **P1.8** | **Cross-engine conformance suite** (parameterized over Mongo/SQL/InMemory, hosted dependency-free in memorydb) + one real-mongod write-failure test (Testcontainers preferred). Asserts: gate (Action rejected when closed / Read allowed / low-level `insertOne` still succeeds / `call==null` passes permission), validation-failure ⇒ no changelog + no success after-hooks, exactly-once delete check, and (enabled with Phase 2) canonical hook order. | new test module | D6, locks F1/F2/N1, I1–I6 | ⏳ in progress — portable subset landed in memorydb (`gateClosedBlocksGenericWritesButNotReadsOrService` pins I5; `validationFailureFiresNoAfterHooksAndNoWrite` pins I2). Pending: parameterize across Mongo/SQL, real-mongod write-failure (Testcontainers), and hook-order/exactly-once assertions (enabled with P2.1/P2.2). |
 | **P1.9** | Close the SQL remote-write permission gap (N8): run the per-action CRUD permission check in `SqlRepository.apiItemProcess` Action branch, matching its Query branch + Mongo. Document the in-memory engine's intentional permission exemption (CONTRACT I6). | `SqlRepository.kt` apiItemProcess Action | N8 (new), I6, D8 | ✅ done — no-op without a configured `rolePermissionProvider`; cross-engine permission pin pending P1.8 |
 
-**Recommended approval boundary:** P1.1–P1.5, P1.9, and the in-memory portion of P1.8 form the SAFE
-batch landing in this commit — it closes the one true violation (F2) and the SQL permission gap (N8),
-durably closes F1, lands the clean gate (P1.5), writes the honest contract (P1.4), and builds the
-in-memory safety net. P1.6/P1.7 and the cross-engine + real-mongod remainder of P1.8 are follow-ups;
-the BREAKING Phase-2 batch (P2.1–P2.3) is separate.
+**Recommended approval boundary:** the full SAFE batch — P1.1–P1.7 and P1.9 — is now landed (commits
+`b196ae64` + `94ac0471`): it closes the one true violation (F2) and the SQL permission gap (N8),
+durably closes F1, lands the clean gate (P1.5) and its vocabulary (P1.6), documents the escape hatches
+(P1.7), and writes the honest contract (P1.4). Only the cross-engine + real-mongod remainder of
+**P1.8** remains in SAFE scope; the BREAKING Phase-2 batch (P2.1–P2.3) is separate and needs
+deliberate, ledger-cited approval.
 
 ## Phase 2 — BREAKING batch · construction (one deliberate decision; major-signal bump)
 
