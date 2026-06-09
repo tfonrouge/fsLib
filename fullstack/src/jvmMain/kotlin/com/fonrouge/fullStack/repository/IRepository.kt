@@ -38,19 +38,19 @@ import kotlin.reflect.KProperty1
  *   fires **no** after-hooks and writes **no** change-log entry. Once a write is *attempted*, its
  *   after-hooks fire **exactly once** with a success flag (they run even when the write fails, with
  *   `result = false`); the change-log is written **only on success**.
- * - **Canonical hook order (target).** Before-hooks shared→specific ([onQueryUpsert] →
+ * - **Canonical hook order.** Before-hooks shared→specific ([onQueryUpsert] →
  *   `onQuery{Create|Update}`, then [onBeforeUpsertAction] → `onBefore{Create|Update}Action`);
  *   after-hooks specific→shared (`onAfter{Create|Update}Action` → [onAfterUpsertAction]); the shared
- *   *Upsert* hook is outermost. Rollout: Mongo/SQL `updateOne` before-hooks and Mongo
- *   `updateFieldsById` query gates still differ — see PLAN P2.2.
+ *   *Upsert* hook is outermost. See CONTRACT I1 for the known Mongo upsert-insert query-gate gap.
  * - **Dependency safety.** [findChildrenNot] blocks deleting a parent that still has children, in
  *   every engine. It runs *exactly once*, owned solely by the concrete [deleteOne], not by the
  *   query-phase [onQueryDelete] hook.
  * - **Permissions.** On the generic/remote path a non-null `call` engages the per-action CRUD
  *   permission check (after `allowApiCrud`); when `call` is null (the trusted service tier) the check
  *   is a documented no-op. The in-memory engine is intentionally permission-free (samples/tests).
- * - **Initialization (target).** [onAfterOpen] should run exactly once before first use and surface
- *   failures; today only the Mongo engine auto-invokes it (fire-and-forget) — see PLAN P2.3.
+ * - **Initialization.** [ensureOpen] runs before the generic item/list entry points and delegates to
+ *   [open], which invokes [onAfterOpen]. In-tree engines make [open] idempotent and surface failures
+ *   to the caller; eager deployments may call [open] at boot for fail-fast initialization.
  *
  * @param T The entity type, must extend [BaseDoc].
  * @param ID The identifier type.
@@ -382,6 +382,31 @@ interface IRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any
      * Called after the repository is opened/initialized.
      */
     suspend fun onAfterOpen()
+
+    /**
+     * Opens or initializes this repository.
+     *
+     * In-tree engines override this as idempotent and retryable: [onAfterOpen] runs exactly once after
+     * the first successful open, and a failed open surfaces as an error without marking the repository
+     * ready. The default body keeps third-party implementations source-compatible but is **not**
+     * idempotent (it runs [onAfterOpen] on every call) — exactly-once / readiness is an **override
+     * obligation**, not inherited, so a custom engine must override [open] to satisfy CONTRACT I4.
+     */
+    suspend fun open(): SimpleState {
+        onAfterOpen()
+        return SimpleState(isOk = true)
+    }
+
+    /**
+     * Ensures this repository is open before a generic API entry point is served — called at the top of
+     * [apiItemProcess]/[apiListProcess] in every engine.
+     *
+     * **Service-tier boundary:** the trusted low-level tier ([insertOne]/[updateOne]/[deleteOne] and
+     * engine helpers) does **not** call this. A deployment that uses only the service tier (bypassing
+     * the generic API) must call [open] at boot if it needs initialization ([onAfterOpen], e.g. index
+     * creation) to have run before its first low-level write.
+     */
+    suspend fun ensureOpen(): SimpleState = open()
 
     // -- Validation --
 

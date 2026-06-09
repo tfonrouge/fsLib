@@ -106,19 +106,21 @@ open class CChildMemoryRepository : InMemoryRepository<CChild, String, ApiFilter
 
 /**
  * Declares which contract invariants a given engine currently enforces. Conformance tests assert
- * universal invariants on every engine, branch on profile-divergent ones, and `Assume`-skip target
- * invariants (reported "pending P2.x") so no failing tests are committed before convergence.
+ * universal invariants on every engine, branch on profile-divergent ones, and `Assume`-skip
+ * profile-gated invariants so future engines can join before convergence without committed failures.
  */
 data class EngineProfile(
     val name: String,
     /** I6: per-action CRUD permission enforced on the remote path. memory=false (exempt), sql=true (P1.9). */
     val enforcesPermissions: Boolean,
-    /** I1: canonical hook order (shared Upsert outermost). memory=true, sql=false (pending P2.2). */
+    /** I1: canonical hook order (shared Upsert outermost). */
     val enforcesCanonicalHookOrder: Boolean,
     /** I2: does the engine call `buildChangeLog` at all? memory=false (no changelog), sql=true. */
     val writesChangeLog: Boolean,
     /** I3: findChildrenNot runs exactly once per delete. */
     val enforcesDeleteExactlyOnce: Boolean,
+    /** I4: open/ensureOpen invokes onAfterOpen exactly once and surfaces init failures. */
+    val enforcesInitLifecycle: Boolean,
 )
 
 /** Exposes the recorded lifecycle-hook call order from an instrumented repository. */
@@ -156,6 +158,11 @@ interface DependencyProbe {
     val findChildrenNotCalls: Int
 }
 
+/** Exposes repository initialization attempts for I4 lifecycle tests. */
+interface InitProbe {
+    val openCalls: Int
+}
+
 /** A parent repository (also a [DependencyProbe]) wired to depend on its [child] repository. */
 class DependencyFixture(
     val parent: IRepository<CItem, String, ApiFilter, String>,
@@ -181,6 +188,12 @@ interface ConformanceFixture {
 
     /** A parent (counting `findChildrenNot`) + child repo wired via a dependency, for I3 tests. */
     fun dependencyFixture(): DependencyFixture
+
+    /** A repository whose `onAfterOpen` counts successful initialization attempts, for I4 tests. */
+    fun initCountingRepo(): IRepository<CItem, String, ApiFilter, String>
+
+    /** A repository whose `onAfterOpen` always fails, for I4 tests. */
+    fun failingInitRepo(): IRepository<CItem, String, ApiFilter, String>
 }
 
 // ── Hook-recording overrides (shared shape, per engine base) ──
@@ -267,9 +280,24 @@ private class DependencyMemoryParent(
     }
 }
 
+private class InitCountingMemoryRepository : CItemMemoryRepository(), InitProbe {
+    override var openCalls = 0
+    override suspend fun onAfterOpen() {
+        openCalls++
+    }
+}
+
+private class FailingInitMemoryRepository : CItemMemoryRepository(), InitProbe {
+    override var openCalls = 0
+    override suspend fun onAfterOpen() {
+        openCalls++
+        error("init failed")
+    }
+}
+
 /** Memory engine fixture — permission-free (I6 exempt), canonical hook order already enforced (I1). */
 class MemoryConformanceFixture : ConformanceFixture {
-    override val profile = EngineProfile(name = "InMemory", enforcesPermissions = false, enforcesCanonicalHookOrder = true, writesChangeLog = false, enforcesDeleteExactlyOnce = true)
+    override val profile = EngineProfile(name = "InMemory", enforcesPermissions = false, enforcesCanonicalHookOrder = true, writesChangeLog = false, enforcesDeleteExactlyOnce = true, enforcesInitLifecycle = true)
     override fun freshRepo(): IRepository<CItem, String, ApiFilter, String> = CItemMemoryRepository()
     override fun gateClosedRepo(): IRepository<CItem, String, ApiFilter, String> = GateClosedMemoryRepository()
     override fun recordingRepo(): IRepository<CItem, String, ApiFilter, String> = RecordingMemoryRepository()
@@ -278,6 +306,8 @@ class MemoryConformanceFixture : ConformanceFixture {
         val child = CChildMemoryRepository()
         return DependencyFixture(parent = DependencyMemoryParent(child), child = child)
     }
+    override fun initCountingRepo(): IRepository<CItem, String, ApiFilter, String> = InitCountingMemoryRepository()
+    override fun failingInitRepo(): IRepository<CItem, String, ApiFilter, String> = FailingInitMemoryRepository()
 }
 
 private class GateClosedSqlRepository(sqlDatabase: SqlDatabase) : CItemSqlRepository(sqlDatabase) {
@@ -363,9 +393,24 @@ private class DependencySqlParent(
     }
 }
 
-/** SQL engine fixture (H2-backed) — enforces permissions (I6/P1.9); hook order pending P2.2 (I1). */
+private class InitCountingSqlRepository(sqlDatabase: SqlDatabase) : CItemSqlRepository(sqlDatabase), InitProbe {
+    override var openCalls = 0
+    override suspend fun onAfterOpen() {
+        openCalls++
+    }
+}
+
+private class FailingInitSqlRepository(sqlDatabase: SqlDatabase) : CItemSqlRepository(sqlDatabase), InitProbe {
+    override var openCalls = 0
+    override suspend fun onAfterOpen() {
+        openCalls++
+        error("init failed")
+    }
+}
+
+/** SQL engine fixture (H2-backed) — enforces permissions (I6/P1.9). */
 class SqlConformanceFixture : ConformanceFixture {
-    override val profile = EngineProfile(name = "SQL", enforcesPermissions = true, enforcesCanonicalHookOrder = true, writesChangeLog = true, enforcesDeleteExactlyOnce = true)
+    override val profile = EngineProfile(name = "SQL", enforcesPermissions = true, enforcesCanonicalHookOrder = true, writesChangeLog = true, enforcesDeleteExactlyOnce = true, enforcesInitLifecycle = true)
     override fun freshRepo(): IRepository<CItem, String, ApiFilter, String> = CItemSqlRepository(createH2CItemDatabase())
     override fun gateClosedRepo(): IRepository<CItem, String, ApiFilter, String> = GateClosedSqlRepository(createH2CItemDatabase())
     override fun recordingRepo(): IRepository<CItem, String, ApiFilter, String> = RecordingSqlRepository(createH2CItemDatabase())
@@ -375,4 +420,6 @@ class SqlConformanceFixture : ConformanceFixture {
         val child = CChildSqlRepository(db)
         return DependencyFixture(parent = DependencySqlParent(db, child), child = child)
     }
+    override fun initCountingRepo(): IRepository<CItem, String, ApiFilter, String> = InitCountingSqlRepository(createH2CItemDatabase())
+    override fun failingInitRepo(): IRepository<CItem, String, ApiFilter, String> = FailingInitSqlRepository(createH2CItemDatabase())
 }

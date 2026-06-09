@@ -12,6 +12,9 @@ import com.fonrouge.fullStack.repository.IChangeLogRepository
 import com.fonrouge.fullStack.repository.IRepository
 import com.fonrouge.fullStack.repository.IUserRepository
 import io.ktor.server.application.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.KProperty1
 import kotlin.reflect.full.memberProperties
@@ -42,6 +45,11 @@ open class InMemoryRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, U
 
     /** In-memory data store keyed by entity ID. */
     protected val store: ConcurrentHashMap<ID, T> = ConcurrentHashMap()
+
+    private val openMutex = Mutex()
+
+    @Volatile
+    private var opened = false
 
     /**
      * Creates a copy of the item using only its primary constructor parameters,
@@ -263,6 +271,8 @@ open class InMemoryRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, U
         call: ApplicationCall?,
         iApiItem: IApiItem<T, ID, FILT>,
     ): ItemState<T> {
+        ensureOpen().also { if (it.hasError) return ItemState(it) }
+
         val apiItem: ApiItem<T, ID, FILT> = asApiItem(
             apiItem = iApiItem.asApiItem(commonContainer, call),
         ).let {
@@ -340,6 +350,10 @@ open class InMemoryRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, U
         call: ApplicationCall?,
         apiList: ApiList<FILT>,
     ): ListState<T> {
+        ensureOpen().also {
+            if (it.hasError) return ListState(state = it.state, msgOk = it.msgOk, msgError = it.msgError)
+        }
+
         call?.let {
             getCrudPermission(call, CrudTask.Read)
                 .also { if (it.hasError) return ListState(state = State.Error, msgError = "User not authorized") }
@@ -474,6 +488,21 @@ open class InMemoryRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, U
     override suspend fun onAfterDeleteAction(apiItem: ApiItem.Action.Delete<T, ID, FILT>, result: Boolean) = Unit
 
     override suspend fun onAfterUpsertAction(apiItem: ApiItem.Action<T, ID, FILT>, orig: T?, result: Boolean) = Unit
+
+    // Idempotent, retryable init. ensureOpen() calls this from the generic API; direct service-tier
+    // callers must call open() at boot for readiness before low-level use (CONTRACT I4).
+    override suspend fun open(): SimpleState = openMutex.withLock {
+        if (opened) return SimpleState(isOk = true)
+        try {
+            onAfterOpen()
+            opened = true
+            SimpleState(isOk = true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            SimpleState(isOk = false, msgError = "Repository init failed: ${e.message}")
+        }
+    }
 
     override suspend fun onAfterOpen() = Unit
 

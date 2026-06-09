@@ -51,8 +51,9 @@ LEDGER **D2**.
 
 ## I2 — Validation gates the write; failure is side-effect-free
 
-**Status: Behaviorally enforced** (all engines); cross-engine pin pending PLAN P1.8. The in-memory
-pin is `validationFailureFiresNoAfterHooksAndNoWrite`.
+**Status: Behaviorally enforced** (all engines). Memory + SQL are pinned by conformance
+(`createValidationFailureIsSideEffectFree`, `updateValidationFailureIsSideEffectFree`); Mongo runtime
+pin is pending PLAN P1.8 / C.
 
 `onValidate` runs **after** all before-hooks and **before** the driver write. A validation failure
 (`hasError`) — or a no-op/no-change skip — returns *before the write is attempted* and fires **no**
@@ -90,23 +91,29 @@ end state — one engine-owned check everywhere — is now in force.
 
 ---
 
-## I4 — `onAfterOpen` runs once before first use and surfaces failure
+## I4 — generic entry points ensure init exactly once and surface failure
 
-**Status: Target** (LEDGER D3, PLAN P2.3). Today only the Mongo engine auto-invokes
-`onAfterOpen`/indexes (fire-and-forget, errors swallowed); SQL and in-memory never auto-invoke it.
+**Status: Behaviorally enforced** (all engines; LEDGER D3/D10, PLAN P2.3). Memory + SQL are pinned
+by conformance; Mongo runtime pin is pending PLAN P1.8 / C.
 
-`onAfterOpen()` (and index creation) runs **exactly once before the repository serves its first
-operation**, and any failure is **observable** — never swallowed by a detached coroutine. A
-repository whose initialization failed must not present itself as ready. The hook's invocation is
-**uniform across engines** (F5). Decision: see LEDGER **D3**.
+The generic item/list entry points call `ensureOpen()` before serving a request. In-tree `open()`
+implementations are idempotent and retryable: `onAfterOpen()` runs exactly once after the first
+successful open; a failed open is returned as an error, does not mark the repository ready, and is
+retried on the next generic call. Mongo also awaits `indexes()` inside
+`with(coroutine) { onAfterOpen(); indexes() }`, so index failures are no longer swallowed by a
+detached constructor coroutine.
+
+`onAfterOpen()` invocation is **uniform across engines** for the generic API surface (F5). Eager
+deployments may call `open()` at boot to initialize repositories before service-tier calls. Decision:
+see LEDGER **D3** and **D10**.
 
 ---
 
 ## I5 — Two write tiers; `apiItemProcess` is the gated remote entry
 
 **Status: Behaviorally enforced.** `allowApiCrud` is invoked at the top of the `apiItemProcess`
-Action branch in all three engines (P1.5); the in-memory pin is
-`gateClosedBlocksGenericWritesButNotReadsOrService`. Cross-engine pin pending PLAN P1.8.
+Action branch in all three engines (P1.5). Memory + SQL are pinned by conformance
+(`gateClosedBlocksGenericWritesButNotReadsOrService`); Mongo runtime pin is pending PLAN P1.8 / C.
 
 The repository has two write tiers with a **one-directional** dependency:
 
@@ -132,8 +139,9 @@ The repository has two write tiers with a **one-directional** dependency:
 
 ## I6 — Per-action CRUD permission on the remote path; `call == null` is trusted
 
-**Status: Behaviorally enforced** (Mongo, SQL); cross-engine pin pending PLAN P1.8. The in-memory
-engine is **intentionally exempt** — it is a samples/tests engine that never enforces permissions.
+**Status: Behaviorally enforced** (Mongo, SQL). SQL is pinned by conformance; Mongo runtime pin is
+pending PLAN P1.8 / C. The in-memory engine is **intentionally exempt** — it is a samples/tests
+engine that never enforces permissions.
 
 On the generic/remote path a non-null `call` engages the per-action CRUD permission check, run
 **after** `allowApiCrud` and **before** dispatch. Mongo enforces it inside its low-level methods

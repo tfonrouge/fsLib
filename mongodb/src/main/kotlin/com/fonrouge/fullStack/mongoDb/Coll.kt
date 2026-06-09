@@ -28,6 +28,8 @@ import io.ktor.server.application.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactive.awaitSingle
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.bson.Document
 import org.bson.conversions.Bson
 import org.litote.kmongo.*
@@ -125,6 +127,11 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
      * @param T The type of documents stored within the MongoDB collection.
      */
     val coroutine: CoroutineCollection<T> get() = mongoColl.coroutine
+
+    private val openMutex = Mutex()
+
+    @Volatile
+    private var opened = false
 
     /**
      * A function that takes a filter of type `FILT` and returns a list of `LookupPipelineBuilder` instances.
@@ -318,6 +325,8 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
         iApiItem: IApiItem<T, ID, FILT>,
         lookupWrappers: List<LookupWrapper<*, *>> = emptyList(),
     ): ItemState<T> {
+        ensureOpen().also { if (it.hasError) return ItemState(it) }
+
         val apiItem: ApiItem<T, ID, FILT> = asApiItem(
             apiItem = iApiItem.asApiItem(commonContainer, call),
         ).let {
@@ -413,6 +422,10 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
         debug: Boolean = this.debug,
         postProcessList: ((List<T>) -> List<T>)? = null,
     ): ListState<T> {
+        ensureOpen().also {
+            if (it.hasError) return ListState(state = it.state, msgOk = it.msgOk, msgError = it.msgError)
+        }
+
         call?.let {
             getCrudPermission(
                 call = call,
@@ -1089,6 +1102,24 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
      *
      * Can be overridden to provide specific behavior upon opening.
      */
+    // Idempotent, retryable init. ensureOpen() calls this from the generic API; direct service-tier
+    // callers must call open() at boot for readiness before low-level use (CONTRACT I4).
+    override suspend fun open(): SimpleState = openMutex.withLock {
+        if (opened) return SimpleState(isOk = true)
+        try {
+            with(coroutine) {
+                onAfterOpen()
+                indexes()
+            }
+            opened = true
+            SimpleState(isOk = true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            SimpleState(isOk = false, msgError = "Repository init failed: ${e.message}")
+        }
+    }
+
     override suspend fun onAfterOpen() = Unit
 
     /**
@@ -1705,15 +1736,6 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
     override suspend fun findOne(
         apiFilter: FILT,
     ): T? = findOne(filter = null, apiFilter = apiFilter, lookupWrappers = emptyList())
-
-    init {
-        CoroutineScope(Dispatchers.IO).launch {
-            with(coroutine) {
-                onAfterOpen()
-                indexes()
-            }
-        }
-    }
 
     init {
         if (this is IRoleInUserColl<*, *, *, *, *, *>) {

@@ -19,8 +19,8 @@ kotlin {
 // write/delete/lifecycle contract (blueprints/repository-write-lifecycle/CONTRACT.md, LEDGER D9).
 // Runs engine-agnostic assertions against the memory + SQL (H2, no Docker) engines: the generic-CRUD
 // gate (I5), per-action permission parity (I6), validation side-effect freedom (I2), delete safety
-// (I3), and canonical hook order (I1, assume-gated/skipped on SQL until P2.2). Remaining: Mongo
-// participation (real-mongod decision, PLAN P1.8 / C).
+// (I3), canonical hook order (I1), and init lifecycle (I4). Remaining: Mongo participation
+// (real-mongod decision, PLAN P1.8 / C).
 dependencies {
     testImplementation(project(":core"))
     testImplementation(project(":fullstack")) {

@@ -1,6 +1,7 @@
 package com.fonrouge.conformance
 
 import com.fonrouge.base.api.ApiFilter
+import com.fonrouge.base.api.ApiList
 import com.fonrouge.base.api.CrudTask
 import com.fonrouge.base.api.IApiItem
 import com.fonrouge.base.common.ICommonContainer
@@ -29,10 +30,10 @@ import kotlin.test.assertTrue
  *   freedom on create + update (I2), and delete block/allow for parents-with-children (I3).
  * - **Profile-divergent** — behavior branches on the [EngineProfile]: per-action permission parity
  *   (I6, `enforcesPermissions`) and the change-log positive control (I2, `writesChangeLog`).
- * - **Target / assume-gated** — skipped (reported "pending P2.x") on engines that have not converged
- *   yet, so no failing tests are committed before Phase 2: canonical hook order (I1,
- *   `enforcesCanonicalHookOrder`). Delete-exactly-once (I3, `enforcesDeleteExactlyOnce`) is live for
- *   the current memory + SQL engines and remains profile-gated for future engines.
+ * - **Profile-gated** — skipped on engines that have not converged yet, so future engines can join
+ *   without committed failures: canonical hook order (I1, `enforcesCanonicalHookOrder`),
+ *   delete-exactly-once (I3, `enforcesDeleteExactlyOnce`), and init lifecycle (I4,
+ *   `enforcesInitLifecycle`) are live for memory + SQL and remain profile-gated for future engines.
  */
 abstract class RepositoryConformanceTests {
 
@@ -118,6 +119,46 @@ abstract class RepositoryConformanceTests {
         }
     }
 
+    // ── I4: init lifecycle (profile-gated per engine) ──
+
+    @Test
+    fun initLifecycleRunsExactlyOnceBeforeGenericUse() = runTest {
+        Assume.assumeTrue(
+            "I4 init lifecycle not enforced for ${fixture.profile.name}",
+            fixture.profile.enforcesInitLifecycle,
+        )
+        val name = fixture.profile.name
+        val repo = fixture.initCountingRepo()
+        val probe = repo as InitProbe
+
+        assertEquals(0, probe.openCalls, "$name: construction must not invoke onAfterOpen eagerly")
+        assertFalse(repo.apiItemProcess(null, actionCreate(CItem("o1", "Opened", 1.0))).hasError)
+        assertEquals(1, probe.openCalls, "$name: first generic item use must invoke onAfterOpen")
+        assertFalse(repo.apiListProcess(null, ApiList(apiFilter = ApiFilter())).hasError)
+        assertEquals(1, probe.openCalls, "$name: subsequent generic list use must not invoke onAfterOpen again")
+    }
+
+    @Test
+    fun initFailureSurfacesBlocksWriteAndRetries() = runTest {
+        Assume.assumeTrue(
+            "I4 init lifecycle not enforced for ${fixture.profile.name}",
+            fixture.profile.enforcesInitLifecycle,
+        )
+        val name = fixture.profile.name
+        val repo = fixture.failingInitRepo()
+        val probe = repo as InitProbe
+
+        val first = repo.apiItemProcess(null, actionCreate(CItem("of1", "Blocked", 1.0)))
+        assertTrue(first.hasError, "$name: init failure must surface on the generic write")
+        assertNull(repo.findById("of1", ApiFilter()), "$name: a write blocked by init failure must not persist")
+        assertEquals(1, probe.openCalls, "$name: first failed open attempt must be recorded")
+
+        val second = repo.apiItemProcess(null, actionCreate(CItem("of2", "Blocked", 2.0)))
+        assertTrue(second.hasError, "$name: init failure must surface again on retry")
+        assertNull(repo.findById("of2", ApiFilter()), "$name: retry failure must still block persistence")
+        assertEquals(2, probe.openCalls, "$name: failed open must retry on the next generic call")
+    }
+
     // ── I2: validation gates the write, side-effect-free (universal) ──
 
     @Test
@@ -163,7 +204,7 @@ abstract class RepositoryConformanceTests {
     @Test
     fun canonicalHookOrderOnCreate() = runTest {
         Assume.assumeTrue(
-            "I1 hook-order convergence pending P2.2 for ${fixture.profile.name}",
+            "I1 canonical hook order not enforced for ${fixture.profile.name}",
             fixture.profile.enforcesCanonicalHookOrder,
         )
         val repo = fixture.recordingRepo()
@@ -183,7 +224,7 @@ abstract class RepositoryConformanceTests {
     @Test
     fun canonicalHookOrderOnUpdate() = runTest {
         Assume.assumeTrue(
-            "I1 hook-order convergence pending P2.2 for ${fixture.profile.name}",
+            "I1 canonical hook order not enforced for ${fixture.profile.name}",
             fixture.profile.enforcesCanonicalHookOrder,
         )
         val repo = fixture.recordingRepo()
@@ -253,7 +294,7 @@ class MemoryConformanceTest : RepositoryConformanceTests() {
     override val fixture: ConformanceFixture = MemoryConformanceFixture()
 }
 
-/** Runs the conformance suite against the SQL engine (H2-backed). Hook-order tests are skipped until P2.2. */
+/** Runs the conformance suite against the SQL engine (H2-backed). */
 class SqlConformanceTest : RepositoryConformanceTests() {
     override val fixture: ConformanceFixture = SqlConformanceFixture()
 }
