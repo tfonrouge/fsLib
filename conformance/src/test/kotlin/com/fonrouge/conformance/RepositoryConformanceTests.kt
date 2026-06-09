@@ -25,10 +25,13 @@ import kotlin.test.assertTrue
  * [ConformanceFixture] for one engine; JUnit runs every test below against it.
  *
  * Test categories:
- * - **Universal** (gate, I5) — asserted on every engine.
- * - **Profile-divergent** (permission parity, I6) — branches on [EngineProfile.enforcesPermissions].
- * - **Target / assume-gated** (canonical hook order, I1) — skipped (reported "pending P2.x") on
- *   engines that have not converged yet, so no failing tests are committed before Phase 2.
+ * - **Universal** — asserted on every engine: the generic-CRUD gate (I5), validation side-effect
+ *   freedom on create + update (I2), and delete block/allow for parents-with-children (I3).
+ * - **Profile-divergent** — behavior branches on the [EngineProfile]: per-action permission parity
+ *   (I6, `enforcesPermissions`) and the change-log positive control (I2, `writesChangeLog`).
+ * - **Target / assume-gated** — skipped (reported "pending P2.x") on engines that have not converged
+ *   yet, so no failing tests are committed before Phase 2: canonical hook order (I1,
+ *   `enforcesCanonicalHookOrder`) and delete-exactly-once (I3, `enforcesDeleteExactlyOnce`).
  */
 abstract class RepositoryConformanceTests {
 
@@ -195,6 +198,51 @@ abstract class RepositoryConformanceTests {
             ),
             (repo as HookLog).calls,
             "update: shared Upsert hook outermost, symmetric with create",
+        )
+    }
+
+    // ── I3: dependency safety — blocks parents-with-children, exactly once ──
+
+    @Test
+    fun deleteBlockedWhenChildrenExist() = runTest {
+        val name = fixture.profile.name
+        val dep = fixture.dependencyFixture()
+        assertFalse(dep.parent.insertOne(CItem("d1", "Parent", 1.0), ApiFilter()).hasError, "$name: seed parent")
+        assertFalse(dep.child.insertOne(CChild("c1", "d1"), ApiFilter()).hasError, "$name: seed child")
+
+        val result = dep.parent.deleteOne("d1", ApiFilter())
+
+        assertTrue(result.hasError, "$name: deleting a parent with children must be refused")
+        assertNotNull(dep.parent.findById("d1", ApiFilter()), "$name: the parent must not be removed")
+    }
+
+    @Test
+    fun deleteAllowedWhenNoChildren() = runTest {
+        val name = fixture.profile.name
+        val dep = fixture.dependencyFixture()
+        assertFalse(dep.parent.insertOne(CItem("d2", "Parent", 1.0), ApiFilter()).hasError, "$name: seed parent")
+
+        val result = dep.parent.deleteOne("d2", ApiFilter())
+
+        assertFalse(result.hasError, "$name: deleting a parent with no children must succeed")
+        assertNull(dep.parent.findById("d2", ApiFilter()), "$name: the parent must be removed")
+    }
+
+    @Test
+    fun dependencyCheckRunsExactlyOncePerDelete() = runTest {
+        Assume.assumeTrue(
+            "I3 single-owner delete pending P2.1 for ${fixture.profile.name}",
+            fixture.profile.enforcesDeleteExactlyOnce,
+        )
+        val dep = fixture.dependencyFixture()
+        assertFalse(dep.parent.insertOne(CItem("d3", "Parent", 1.0), ApiFilter()).hasError)
+
+        dep.parent.deleteOne("d3", ApiFilter())
+
+        assertEquals(
+            1,
+            (dep.parent as DependencyProbe).findChildrenNotCalls,
+            "${fixture.profile.name}: findChildrenNot must run exactly once per delete",
         )
     }
 }
