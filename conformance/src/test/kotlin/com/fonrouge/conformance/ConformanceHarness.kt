@@ -365,7 +365,7 @@ private class DependencySqlParent(
 
 /** SQL engine fixture (H2-backed) — enforces permissions (I6/P1.9); hook order pending P2.2 (I1). */
 class SqlConformanceFixture : ConformanceFixture {
-    override val profile = EngineProfile(name = "SQL", enforcesPermissions = true, enforcesCanonicalHookOrder = false, writesChangeLog = true, enforcesDeleteExactlyOnce = true)
+    override val profile = EngineProfile(name = "SQL", enforcesPermissions = true, enforcesCanonicalHookOrder = true, writesChangeLog = true, enforcesDeleteExactlyOnce = true)
     override fun freshRepo(): IRepository<CItem, String, ApiFilter, String> = CItemSqlRepository(createH2CItemDatabase())
     override fun gateClosedRepo(): IRepository<CItem, String, ApiFilter, String> = GateClosedSqlRepository(createH2CItemDatabase())
     override fun recordingRepo(): IRepository<CItem, String, ApiFilter, String> = RecordingSqlRepository(createH2CItemDatabase())

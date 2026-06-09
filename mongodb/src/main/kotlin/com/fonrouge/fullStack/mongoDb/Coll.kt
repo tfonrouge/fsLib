@@ -1388,21 +1388,23 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
             apiFilter = apiFilter,
             call = call,
         )
-        onQueryUpdate(
-            apiItem = apiItem.asQuery as ApiItem.Query.Update,
-            orig = orig
-        ).also { if (it.hasError) return it.asItemState() }
+        // CONTRACT.md I1: shared Upsert hook outermost — upsert→specific on both query gates and
+        // before-hooks, symmetric with create (P2.2).
         onQueryUpsert(
             apiItem = apiItem.asQuery as ApiItem.Query.Update,
             orig = orig
         ).also { if (it.hasError) return it.asItemState() }
-        onBeforeUpdateAction(apiItem = apiItem, orig = orig).also { it ->
+        onQueryUpdate(
+            apiItem = apiItem.asQuery as ApiItem.Query.Update,
+            orig = orig
+        ).also { if (it.hasError) return it.asItemState() }
+        onBeforeUpsertAction(apiItem = apiItem, orig = orig).also { it ->
             if (it.hasError) return it
             it.item?.let {
                 apiItem = apiItem.copy(item = it)
             }
         }
-        onBeforeUpsertAction(apiItem = apiItem, orig = orig).also { it ->
+        onBeforeUpdateAction(apiItem = apiItem, orig = orig).also { it ->
             if (it.hasError) return it
             it.item?.let {
                 apiItem = apiItem.copy(item = it)
@@ -1535,18 +1537,20 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
             ).also { if (it.hasError) return it.asItemState() }
         }
         var apiItem1 = apiItem.copy(item = apiItem.item)
+        // CONTRACT.md I1: shared Upsert hook outermost — onBeforeUpsertAction first (it also runs on
+        // the upsert-insert path), then onBeforeUpdateAction only when an original exists (P2.2).
+        onBeforeUpsertAction(apiItem = apiItem1, orig = orig).also { it ->
+            if (it.hasError) return it
+            it.item?.let {
+                apiItem1 = apiItem1.copy(item = it)
+            }
+        }
         orig?.let {
             onBeforeUpdateAction(apiItem = apiItem1, orig = orig).also { it ->
                 if (it.hasError) return it
                 it.item?.let {
                     apiItem1 = apiItem1.copy(item = it)
                 }
-            }
-        }
-        onBeforeUpsertAction(apiItem = apiItem1, orig = orig).also { it ->
-            if (it.hasError) return it
-            it.item?.let {
-                apiItem1 = apiItem1.copy(item = it)
             }
         }
         val filter1 = and(BaseDoc<ID>::_id eq apiItem1.item._id, filter ?: EMPTY_BSON)

@@ -21,9 +21,12 @@ by symbol when implementing.
 
 ## I1 — Canonical hook order (symmetric, engine-identical)
 
-**Status: Target** (LEDGER D2, PLAN P2.2). Enforced today for all create paths, all after-hooks, all
-query gates, and the in-memory engine's update; Mongo/SQL `updateOne` before-hooks and Mongo
-`updateFieldsById` query gates still diverge.
+**Status: Behaviorally enforced** (P2.2). All engines now emit the canonical order; memory + SQL are
+pinned by the conformance suite (`canonicalHookOrderOn{Create,Update}`), Mongo by code review +
+cross-engine symmetry (runtime pin pending the Mongo fixture, C). **Known gap:** on Mongo `updateOne`'s
+upsert-*insert* path (`orig == null`), the query gates stay inside `orig?.let` so neither fires, yet
+`onBeforeUpsertAction` does — an I1 inconsistency on that path only, outside the P2.2 reorder diff
+(LEDGER D2).
 
 For every write, lifecycle hooks fire in this order, **identically across engines** and **symmetric
 between create and update**:
@@ -37,9 +40,8 @@ after   : onAfter{Create|Update}Action → onAfterUpsertAction   (specific BEFOR
 ```
 
 **Rule: the shared `Upsert` hook is the outermost wrapper** — first on the way in (`before`), last
-on the way out (`after`). This already holds for all create paths, all after-hooks, all query
-gates, and the in-memory engine's update; the deviations to fix are Mongo/SQL `updateOne`
-before-hooks and Mongo `updateFieldsById` query gates (F3).
+on the way out (`after`). This now holds in every engine; P2.2 harmonized the former outliers
+(Mongo/SQL `updateOne` before-hooks, Mongo `updateFieldsById` before-hooks + query gates — F3).
 
 **Rationale:** `onBeforeUpsertAction` and `onBefore{Create|Update}Action` may each mutate the item;
 divergent order means two engines persist *different documents* for the same input. Decision: see

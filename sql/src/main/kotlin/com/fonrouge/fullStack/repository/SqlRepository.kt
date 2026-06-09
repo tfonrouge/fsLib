@@ -186,14 +186,15 @@ abstract class SqlRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UI
             .also { if (it.hasError) return it.asItemState() }
         var currentItem = item
         var currentApiItem = apiItem
-        onBeforeUpdateAction(currentApiItem, orig).also {
+        // CONTRACT.md I1: shared Upsert hook outermost — upsert→specific, symmetric with create (P2.2).
+        onBeforeUpsertAction(currentApiItem, orig).also {
             if (it.hasError) return it
             it.item?.let { modified ->
                 currentItem = modified; currentApiItem =
                 currentApiItem.copy(item = currentItem)
             }
         }
-        onBeforeUpsertAction(currentApiItem, orig).also {
+        onBeforeUpdateAction(currentApiItem, orig).also {
             if (it.hasError) return it
             it.item?.let { modified ->
                 currentItem = modified; currentApiItem =
