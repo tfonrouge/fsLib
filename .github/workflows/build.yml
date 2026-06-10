@@ -26,4 +26,7 @@ jobs:
         run: ./gradlew build -x jsBrowserTest
 
       - name: Run tests
-        run: ./gradlew :core:allTests :ssr:test
+        # :conformance:test also runs in the Build step (via check); listing it here keeps the
+        # repository write/lifecycle conformance suite — including the Mongo/Testcontainers leg
+        # (blueprints/repository-write-lifecycle, LEDGER D11) — an explicit, non-silent CI gate.
+        run: ./gradlew :core:allTests :ssr:test :conformance:test
