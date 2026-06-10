@@ -61,7 +61,7 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:3.1.2")
+                api("com.fonrouge.fslib:fullstack:4.0.0")
             }
         }
         jvmMain {
@@ -88,7 +88,7 @@ To develop and test against a local build of FSLib, publish a SNAPSHOT version t
 ./gradlew publishToMavenLocal -PSNAPSHOT
 ```
 
-The `-PSNAPSHOT` flag automatically appends `-SNAPSHOT` to the version (e.g., `3.1.2` becomes `3.1.2-SNAPSHOT`) without modifying `libs.versions.toml`. Then in your consuming project:
+The `-PSNAPSHOT` flag automatically appends `-SNAPSHOT` to the version (e.g., `4.0.0` becomes `4.0.0-SNAPSHOT`) without modifying `libs.versions.toml`. Then in your consuming project:
 
 ```kotlin
 repositories {
@@ -97,7 +97,7 @@ repositories {
 
 dependencies {
     // Use the SNAPSHOT version matching what you published
-    api("com.fonrouge.fslib:fullstack:3.1.2-SNAPSHOT")
+    api("com.fonrouge.fslib:fullstack:4.0.0-SNAPSHOT")
 }
 ```
 
@@ -464,7 +464,7 @@ val repo = InMemoryRepository<Task, String, TaskFilter, String>(
 
 ```kotlin
 // build.gradle.kts (jvmMain)
-implementation("com.fonrouge.fslib:memorydb:3.1.2")
+implementation("com.fonrouge.fslib:memorydb:4.0.0")
 ```
 
 See `samples/fullstack/showcase/` for a complete example using `InMemoryRepository`.
@@ -1318,7 +1318,7 @@ fun Application.main() {
     }
 
     // Build and serve the API contract
-    val contract = RouteContract(version = "3.1.2")
+    val contract = RouteContract(version = "4.0.0")
     contract.register(TaskServiceManager, "ITaskService")
 
     routing {

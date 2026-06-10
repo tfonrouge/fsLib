@@ -75,4 +75,4 @@ leak the suite surfaced. Phase 2 is complete in code (P2.1/P2.2/P2.3). **Release
 (2026-06-10): version bump in `gradle/libs.versions.toml`, CHANGELOG entry with migration guide,
 README coordinates refreshed. The blueprint's in-scope work is **complete**; only the optional
 Phase 3 items (P3.1, P3.2) and G2 remain open. (Repo infra: the explicit `:conformance:test` CI
-step is committed locally but unpushed pending a `workflow`-scoped token.)
+step is pushed and green — commit `e330456f`, run 27307306966.)
