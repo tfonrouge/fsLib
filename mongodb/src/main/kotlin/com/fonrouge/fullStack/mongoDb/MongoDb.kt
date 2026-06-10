@@ -3,22 +3,25 @@ package com.fonrouge.fullStack.mongoDb
 import com.fonrouge.base.serializers.*
 import com.mongodb.client.model.Collation
 import com.mongodb.client.model.CollationStrength
+import com.mongodb.reactivestreams.client.MongoClient
 import com.mongodb.reactivestreams.client.MongoDatabase
 import io.ktor.server.application.*
 import org.litote.kmongo.reactivestreams.KMongo.createClient
 import org.litote.kmongo.serialization.registerSerializer
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 
 internal var mongoDbBuilder: MongoDbBuilder = MongoDbBuilder()
 
 /**
  * Lazily initialized variable to hold the MongoDB client instance.
  *
- * This variable uses the KMongo library to create a MongoDB client based
- * on the provided connection string from the mongoDbPluginConfiguration.
+ * Resolved through [MongoDbBuilder.sharedClient], so it reuses the same process-wide
+ * client as any [Coll] configured with a [MongoDbBuilder] targeting the same
+ * connection string (from the mongoDbPluginConfiguration).
  */
 val mongoClient by lazy {
-    createClient(mongoDbBuilder.connectionString)
+    MongoDbBuilder.sharedClient(mongoDbBuilder.connectionString)
 }
 
 /**
@@ -96,9 +99,41 @@ data class MongoDbBuilder(
             "$it$serverUrl:$serverPort" + if (authSource != null) "/?authSource=$authSource" else ""
         }
 
-    fun getMongoDb(): MongoDatabase = createClient(connectionString).getDatabase(database)
+    /**
+     * Returns the [MongoDatabase] named [database], obtained from the process-wide shared
+     * [MongoClient] for this builder's [connectionString] (see [sharedClient]).
+     *
+     * Repeated calls — and distinct builders targeting the same server — reuse the same
+     * underlying client (and thus one connection pool and one set of monitor threads);
+     * only the database handle differs. The [database] name is intentionally not part of
+     * the client cache key, so callers can hold many databases on one client.
+     */
+    fun getMongoDb(): MongoDatabase = sharedClient(connectionString).getDatabase(database)
 
     companion object {
+
+        /**
+         * Process-wide cache of [MongoClient] instances keyed by connection string.
+         *
+         * A `MongoClient` is thread-safe, owns a connection pool plus monitor threads, and the
+         * driver recommends one instance per cluster — so every [getMongoDb] call (one per
+         * builder-configured [Coll]) must reuse it rather than construct a fresh, never-closed
+         * client. Cached clients live for the lifetime of the process and are never closed,
+         * matching the prior behavior of the global [mongoClient] singleton.
+         */
+        private val clientCache = ConcurrentHashMap<String, MongoClient>()
+
+        /**
+         * Returns the shared [MongoClient] for [connectionString], creating and caching it on
+         * first use. Internal so the global [mongoClient] lazy routes through the same cache.
+         *
+         * @param connectionString The full MongoDB connection string identifying the cluster
+         * (host, port, credentials, authSource — but not the database name).
+         * @return The process-wide client for that connection string.
+         */
+        internal fun sharedClient(connectionString: String): MongoClient =
+            clientCache.computeIfAbsent(connectionString) { createClient(it) }
+
         init {
             //
             // TODO: using registerModule doesn't encode LocalDate to 'YYYY-MM-YY' as per FSLocalDateSerializer
