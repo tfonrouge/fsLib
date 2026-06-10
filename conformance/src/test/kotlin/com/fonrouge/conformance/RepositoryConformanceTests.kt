@@ -13,6 +13,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import org.junit.Assume
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -297,4 +298,19 @@ class MemoryConformanceTest : RepositoryConformanceTests() {
 /** Runs the conformance suite against the SQL engine (H2-backed). */
 class SqlConformanceTest : RepositoryConformanceTests() {
     override val fixture: ConformanceFixture = SqlConformanceFixture()
+}
+
+/**
+ * Runs the conformance suite against the Mongo engine (Testcontainers, decision C). The shared
+ * [MongoTestSupport.requireDocker] gate `Assume`-skips every test when Docker is absent locally,
+ * fails loudly in CI, and pre-starts the container outside `runTest`'s whole-test timeout. Pins the
+ * P2.1/P2.2/P2.3 convergence invariants against a real mongod.
+ */
+class MongoConformanceTest : RepositoryConformanceTests() {
+    @BeforeTest
+    fun requireDocker() {
+        MongoTestSupport.requireDocker()
+    }
+
+    override val fixture: ConformanceFixture = MongoConformanceFixture()
 }

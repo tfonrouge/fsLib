@@ -22,8 +22,9 @@ by symbol when implementing.
 ## I1 — Canonical hook order (symmetric, engine-identical)
 
 **Status: Behaviorally enforced** (P2.2). All engines now emit the canonical order; memory + SQL are
-pinned by the conformance suite (`canonicalHookOrderOn{Create,Update}`), Mongo by code review +
-cross-engine symmetry (runtime pin pending the Mongo fixture, C). **Known gap:** on Mongo `updateOne`'s
+pinned by the conformance suite (`canonicalHookOrderOn{Create,Update}`); Mongo is now exercised by the
+suite **in CI** (Testcontainers `MongoConformanceTest`, D11 — Docker-assume-skip locally, first CI
+green pending). **Known gap:** on Mongo `updateOne`'s
 upsert-*insert* path (`orig == null`), the query gates stay inside `orig?.let` so neither fires, yet
 `onBeforeUpsertAction` does — an I1 inconsistency on that path only, outside the P2.2 reorder diff
 (LEDGER D2).
@@ -52,8 +53,14 @@ LEDGER **D2**.
 ## I2 — Validation gates the write; failure is side-effect-free
 
 **Status: Behaviorally enforced** (all engines). Memory + SQL are pinned by conformance
-(`createValidationFailureIsSideEffectFree`, `updateValidationFailureIsSideEffectFree`); Mongo runtime
-pin is pending PLAN P1.8 / C.
+(`createValidationFailureIsSideEffectFree`, `updateValidationFailureIsSideEffectFree`); Mongo is now
+exercised by the suite **in CI** (Testcontainers, D11). The **driver-write-failure clause** (a write
+that reaches the driver and fails fires after-hooks exactly once with `result = false`) is pinned
+against a real mongod by `MongoWriteFailureTest` (the D6 duplicate-key test — Docker-assume-skip,
+runs in CI). The change-log positive-control stays **SQL-only** — `Coll.changeLogCollFun` is
+`IChangeLogColl`-typed, incompatible with the `IChangeLogRepository` probe, so the Mongo profile sets
+`writesChangeLog = false` and the duplicate-key test covers the change-log gate only indirectly via
+the same `result` flag (D11).
 
 `onValidate` runs **after** all before-hooks and **before** the driver write. A validation failure
 (`hasError`) — or a no-op/no-change skip — returns *before the write is attempted* and fires **no**
@@ -72,8 +79,9 @@ write paths comply — `Coll.insertOne` (P1.1) and `Coll.updateOne`/`updateField
 
 **Status: Behaviorally enforced** (all engines; LEDGER D1, PLAN P2.1). Every engine refuses to
 delete a parent that still has children, and the check runs exactly once, owned solely by the
-concrete `deleteOne`. The memory + SQL conformance pin is live; Mongo real-server participation is
-pending PLAN P1.8 / C.
+concrete `deleteOne`. The memory + SQL conformance pin is live; Mongo is now exercised by the suite
+**in CI** (Testcontainers `dependencyCheckRunsExactlyOncePerDelete`, D11 — skips locally, first CI
+green pending).
 
 A parent with existing children is refused (`State.Error`), and the authoritative check lives in the
 concrete `deleteOne` (action tier), **not** in `onQueryDelete`. `onQueryDelete`'s default is a plain
@@ -94,7 +102,8 @@ end state — one engine-owned check everywhere — is now in force.
 ## I4 — generic entry points ensure init exactly once and surface failure
 
 **Status: Behaviorally enforced** (all engines; LEDGER D3/D10, PLAN P2.3). Memory + SQL are pinned
-by conformance; Mongo runtime pin is pending PLAN P1.8 / C.
+by conformance; Mongo is now exercised by the suite **in CI** (Testcontainers `initLifecycle*`, D11 —
+Docker-assume-skip locally, first CI green pending).
 
 The generic item/list entry points call `ensureOpen()` before serving a request. In-tree `open()`
 implementations are idempotent and retryable: `onAfterOpen()` runs exactly once after the first
@@ -113,7 +122,8 @@ see LEDGER **D3** and **D10**.
 
 **Status: Behaviorally enforced.** `allowApiCrud` is invoked at the top of the `apiItemProcess`
 Action branch in all three engines (P1.5). Memory + SQL are pinned by conformance
-(`gateClosedBlocksGenericWritesButNotReadsOrService`); Mongo runtime pin is pending PLAN P1.8 / C.
+(`gateClosedBlocksGenericWritesButNotReadsOrService`); Mongo is now exercised by the suite **in CI**
+(Testcontainers, D11 — skips locally, first CI green pending).
 
 The repository has two write tiers with a **one-directional** dependency:
 
@@ -139,9 +149,11 @@ The repository has two write tiers with a **one-directional** dependency:
 
 ## I6 — Per-action CRUD permission on the remote path; `call == null` is trusted
 
-**Status: Behaviorally enforced** (Mongo, SQL). SQL is pinned by conformance; Mongo runtime pin is
-pending PLAN P1.8 / C. The in-memory engine is **intentionally exempt** — it is a samples/tests
-engine that never enforces permissions.
+**Status: Behaviorally enforced** (Mongo, SQL). SQL is pinned by conformance. Mongo enforces via
+`Coll.roleInUserColl`, **not** the `PermissionRegistry` the conformance deny-mechanism uses, so the
+suite cannot drive Mongo's check — the Mongo profile sets `enforcesPermissions = false` (D11) and
+Mongo's enforcement is verified by code (`getCrudPermission`), not the suite. The in-memory engine is
+**intentionally exempt** — it is a samples/tests engine that never enforces permissions.
 
 On the generic/remote path a non-null `call` engages the per-action CRUD permission check, run
 **after** `allowApiCrud` and **before** dispatch. Mongo enforces it inside its low-level methods

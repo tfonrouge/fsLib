@@ -17,6 +17,7 @@ logbackClassic = "1.5.20"
 mockk = "1.13.13"
 mssqlJdbc = "9.4.1.jre8"
 serialization = "1.10.0"
+testcontainers = "1.20.4"
 
 [libraries]
 exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposedCore" }
@@ -32,6 +33,7 @@ kmongo-coroutine-serialization = { module = "org.litote.kmongo:kmongo-coroutine-
 kmongo-id = { module = "org.litote.kmongo:kmongo-id", version.ref = "kmongo" }
 kmongo-id-serialization = { module = "org.litote.kmongo:kmongo-id-serialization", version.ref = "kmongo" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
 kotlinx-datetime-jvm = { module = "org.jetbrains.kotlinx:kotlinx-datetime-jvm", version.ref = "kotlinxDatetime" }
 kotlinx-html = { module = "org.jetbrains.kotlinx:kotlinx-html", version.ref = "kotlinxHtml" }
@@ -90,6 +92,7 @@ kvision-tom-select-remote = { module = "io.kvision:kvision-tom-select-remote", v
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logbackClassic" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 mssql-jdbc = { module = "com.microsoft.sqlserver:mssql-jdbc", version.ref = "mssqlJdbc" }
+testcontainers-mongodb = { module = "org.testcontainers:mongodb", version.ref = "testcontainers" }
 
 [plugins]
 google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "kspVersion" }
