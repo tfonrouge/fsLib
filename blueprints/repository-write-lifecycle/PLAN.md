@@ -71,7 +71,8 @@ via Testcontainers (D11) — **first real Mongo green achieved 2026-06-10** (run
 `66ceda79`), pinning the P2.1/P2.2/P2.3 Mongo convergence (I1/I3/I4) plus the D6 real-mongod
 write-failure path (F1 duplicate-key, `MongoWriteFailureTest`). Locally (no Docker) the Mongo leg
 Assume-skips; in CI a missing Docker daemon fails loudly (D11). D12 closed the `MongoClient`-per-repo
-leak the suite surfaced. Phase 2 is complete in code (P2.1/P2.2/P2.3). The remaining work is the
-**`4.0.0` version bump/release packaging**, applied as a separate commit when this batch is released.
-(Repo infra: the explicit `:conformance:test` CI step is committed locally but unpushed pending a
-`workflow`-scoped token.)
+leak the suite surfaced. Phase 2 is complete in code (P2.1/P2.2/P2.3). **Released as `4.0.0`**
+(2026-06-10): version bump in `gradle/libs.versions.toml`, CHANGELOG entry with migration guide,
+README coordinates refreshed. The blueprint's in-scope work is **complete**; only the optional
+Phase 3 items (P3.1, P3.2) and G2 remain open. (Repo infra: the explicit `:conformance:test` CI
+step is committed locally but unpushed pending a `workflow`-scoped token.)

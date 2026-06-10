@@ -2,6 +2,74 @@
 
 All notable changes to this project will be documented in this file.
 
+## [4.0.0] - 2026-06-10
+
+The repository write/delete/lifecycle contract release. `IRepository`'s write, delete, and
+init behavior is now a written, test-pinned contract (`blueprints/repository-write-lifecycle/`,
+invariants I1–I7), converged across all three engines (`Coll`, `SqlRepository`,
+`InMemoryRepository`) and enforced by a cross-engine conformance suite — including the Mongo
+engine running against a real mongod in CI.
+
+### Changed
+- **Breaking**: canonical write hook order is now **shared-`Upsert`-outermost, symmetric across
+  create and update, identical across engines** (CONTRACT I1, LEDGER D2): before-hooks run
+  `onBeforeUpsertAction` → `onBefore{Create|Update}Action`, after-hooks run
+  `onAfter{Create|Update}Action` → `onAfterUpsertAction`. Reordered the former outliers — Mongo/SQL
+  `updateOne` before-hooks and Mongo `updateFieldsById` before-hooks + query gates.
+- **Breaking**: delete dependency safety is owned by the concrete `deleteOne`, exactly once, in
+  every engine (CONTRACT I3, LEDGER D1). `onQueryDelete`'s default is now a plain `isOk` gate and
+  no longer performs the `findChildrenNot` pre-check; overriding it can no longer bypass
+  referential protection.
+- **Breaking**: repository init lifecycle (CONTRACT I4, LEDGER D3/D10). `Coll` no longer launches
+  fire-and-forget init from its constructor; explicit, idempotent, retryable `open()` awaits
+  `onAfterOpen()` + `indexes()` and **surfaces failures** (previously swallowed by a detached
+  coroutine). Generic item/list entry points lazily `ensureOpen()`; a failed open returns an error
+  and retries on the next generic call.
+- After-hook semantics clarified and pinned (CONTRACT I2): after-hooks fire **exactly once per
+  attempted write** — including failed driver writes, with `result = false`; the change-log is
+  written only on success.
+
+### Added
+- `IRepository.allowApiCrud(apiItem): SimpleState` — first-class gate at the top of the
+  `apiItemProcess` Action branch in all engines (CONTRACT I5, LEDGER D4). Origin-scoped write
+  policy ("writable only via domain services") now overrides this gate instead of the whole
+  dispatcher. Companion `apiCrudDisabledErrorMsg` + `denyApiCrud()` give the lockdown its own
+  vocabulary, distinct from `readOnly`.
+- The I1–I7 contract written into `IRepository` KDoc, with `CONTRACT.md` as the durable spec.
+- `:conformance` test module (not published): engine-agnostic assertions run against
+  `InMemoryRepository`, `SqlRepository` (H2, no Docker), and `Coll` (Testcontainers Mongo —
+  Assume-skips locally without Docker, fails loudly in CI if Docker is missing), covering the
+  generic-CRUD gate, per-action permission parity, validation side-effect freedom, delete safety,
+  canonical hook order, and init lifecycle — plus a real-mongod duplicate-key write-failure test
+  (`MongoWriteFailureTest`).
+- `InMemoryRepository.deleteOne` now performs the `findChildrenNot` dependency check — deleting a
+  parent with children is refused (`State.Error`), matching Mongo/SQL.
+
+### Fixed
+- `Coll.insertOne` no longer writes a phantom change-log entry for failed or validation-rejected
+  inserts; `onValidate` + constructor-strip are hoisted above the write `try` in `insertOne`,
+  `updateOne`, and `updateFieldsById`, making validation-failure side-effect freedom structural.
+- `SqlRepository.apiItemProcess` now runs the per-action CRUD permission check in its Action
+  branch, matching its Query branch and Mongo (no-op without a configured
+  `rolePermissionProvider`). The in-memory engine remains intentionally permission-free.
+- `MongoDbBuilder.getMongoDb()` reuses a process-wide `MongoClient` cached per connection string
+  instead of constructing a new, never-closed client per repository (LEDGER D12).
+- `updateMany`/`bulkWrite` documented as raw, ungated escape hatches; `updateFieldsById`
+  documented as Mongo-only (engine-coupling) in KDoc.
+
+### Migration Guide
+- **Update-path hook overrides**: `onBeforeUpsertAction` now runs **before**
+  `onBeforeUpdateAction` (previously after, on Mongo/SQL `updateOne`). Overrides that depended on
+  observing the specific hook's mutations first must move that logic.
+- **`onQueryDelete` overrides**: the default no longer pre-checks dependencies. If you overrode it
+  and relied on `super` for the check, nothing changes at the action tier — `deleteOne` enforces
+  it unconditionally. Re-add an advisory pre-check only if you need early UX feedback.
+- **Mongo init**: constructors no longer create indexes. Call `open()` eagerly at boot (or let the
+  generic API surface `ensureOpen()` lazily). `onAfterOpen`/`indexes()` failures now surface —
+  deployments that silently tolerated failing index builds will now see the error.
+- **Remote CRUD lockdowns**: replace `apiItemProcess` overrides with an `allowApiCrud` override;
+  use `denyApiCrud()` for the canonical refusal message.
+
 ## [3.3.0] - 2026-04-20
 
 ### Changed
