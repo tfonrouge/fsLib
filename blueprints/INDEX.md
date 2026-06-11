@@ -6,7 +6,7 @@
 
 | Blueprint | Mode | Status | Summary |
 |---|---|---|---|
-| [repository-write-lifecycle](repository-write-lifecycle/) | LIBRARY | Plan approved · implementation pending | Document and unify the `IRepository` write / delete / lifecycle contract across the Mongo (`Coll`), SQL (`SqlRepository`), and in-memory (`InMemoryRepository`) engines; add a first-class generic-CRUD gate (`allowApiCrud`); pin every invariant with a cross-engine conformance suite. |
+| [repository-write-lifecycle](repository-write-lifecycle/) | LIBRARY | Complete · shipped in 4.0.0 · optional P3.x/G2 open | Documented and unified the `IRepository` write / delete / lifecycle contract across the Mongo (`Coll`), SQL (`SqlRepository`), and in-memory (`InMemoryRepository`) engines; added a first-class generic-CRUD gate (`allowApiCrud`); pinned every invariant with a cross-engine conformance suite (green in CI, including real Mongo). Released as `4.0.0` (tag `v4.0.0`, Maven Central). |
 
 ## Artifacts per blueprint
 
