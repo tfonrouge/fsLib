@@ -47,7 +47,14 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 
 | ID | Step | Discharges | Status |
 |----|------|-----------|--------|
-| **DG** | Resolve and lock the decision set in `LEDGER.md` (pick option per decision; set APPROVED/REJECTED; non-empty falsification each). **D1 LOCKED** 2026-06-21 → option (a) user precedence (group < direct user). Remaining recommendations on record: D2=d, D3=a, D4=b, D5=c, D6=b. | D1 ✅ · D2–D6 | ◑ D1 done; D2–D6 pending lock-down |
+| **DG** | Resolve and lock the decision set in `LEDGER.md` (pick option per decision; set APPROVED/REJECTED; non-empty falsification each). **D1 LOCKED** 2026-06-21 → option (a) user precedence (group < direct user). Remaining recommendations on record: D2=d, D3=a, D4=b, D5=c, D6=b; **membership** D7=ship-both, D8=as-stated (existence ≠ authz; effective authz **is** the D1/T5 precedence resolution, not a deny-override union), D9=as-stated (typed port, non-materializing). | D1 ✅ · D2–D9 | ◑ D1 done; D2–D9 pending lock-down |
+
+> **Priority callout.** The two **security-critical** fixes — **P2.1 (D2, the deny-dropping multi-group
+> tie-break, R4/#3)** and **P2.2 (D3, the `crudTaskSet`-miss inversion, R3/#4)** — are independent of the
+> membership API and of each other. Both have **verified concrete unsafe-`Allow` reproductions**
+> (2026-06-21 review): (R4) `SingleAction`, `upVoteInGroup=Allow`, `defaultPermission=Allow`, two `Deny`
+> groups → `Allow`; (R3) `CrudTask`, `defaultPermission=Deny`, task ∉ `defaultCrudTaskSet`, user with
+> **zero** grants → `Allow`. Lock D2/D3 and ship P2.1/P2.2 **first**, ahead of the membership work.
 
 ## Phase 2 — Semantics · BREAKING · construction (one deliberate decision per locked Dx; major-signal)
 
@@ -70,6 +77,20 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 | **P3.2** | **Explicit registration (R10).** Replace the construction-side-effect, global-mutable provider registration with explicit registration; single-action + group concepts join the agnostic surface. | `Coll.kt:1740-1744`, `PermissionRegistry` | R1, R10, D5 | BREAKING (registration API) | ☐ |
 | **P3.3** | **Demonstrate RBAC in a sample** (none exists today): one sample wiring user + group grants end-to-end, exercising composition + conflict rule. | `samples/**` | R8 (visibility) | SAFE (additive) | ☐ |
 
+## Phase 4 — Group-aware SingleAction membership API · mostly SAFE-additive (rides the D5 port; gated on D7–D9)
+
+> The membership API is a **new operation** (D7), not a change to `permissionState`. Its Mongo
+> implementation is the Mongo half of the D5=c grant-fetch port — **zero throwaway**: building it
+> "inside" the port (P4.x) doubles as P3.1's Mongo impl.
+
+| ID | Step | File anchors | Discharges | Risk | Status |
+|----|------|--------------|-----------|------|--------|
+| **P4.1** | **Membership port + two algebras (D5=c, D7–D9, T6).** In `fullstack`/`core` add the **typed** grant-fetch port (the same D5=c port): existence fast path `existsDirectGrant`/`existsGroupGrant: Boolean`, **and** typed summaries `fetchDirectGrant(userId, appRoleId): GrantSummary?` / `fetchGroupGrants(userId, appRoleId): List<GrantSummary>` (`{permission, crudTaskSet}`). Two algebras: **T6a `hasSingleActionGrant`** = `existsDirect || existsGroup`; **T6b `isAllowedSingleAction`** = the **`permissionState` precedence resolution restricted to SingleAction** over the typed port (direct authoritative; else D2 intra-group) — **same engine as P3.1**, not a deny-override union. A boolean-only port is explicitly rejected (can't carry permission/defaults/upVote for T6b). | new typed port + 2 algebras; `fullstack` surface | R12, D7, D8, D9, T6 | additive (SAFE) | ☐ |
+| **P4.2** | **Mongo impl — non-materializing (D9, R13).** Existence: `existsDirectGrant` = `countDocuments(and(userId,appRoleId)) > 0`; `existsGroupGrant` = the `getGroupPermission` aggregation terminated at `limit(1)`/count. Typed: `fetchDirectGrant` projects only `{permission, crudTaskSet}` of the direct row (projection + `limit(1)`, **never** `.first()` on the full doc → can't crash on a bad `_id`, R13); `fetchGroupGrants` projects the same from the group aggregation (no `replaceRoot`/private-class decode → sidesteps R6). Keyed by `appRoleId`, no `AppRole` provisioning. **P4.2 + T6a is the consumer's fix.** | `mongodb/.../IRoleInUserColl.kt` (new queries) → port impl | R12, R13, R6, D9 | additive (SAFE) | ☐ |
+| **P4.3** | **InMemory impl (D5/D6).** Two in-heap `any { }` predicates over RoleInUser/RoleInGroup/UserGroup; requires an RBAC-aware holder (InMemory stores one entity type per repo today). Fail-closed when unconfigured (D6). | `memorydb/.../InMemoryRepository.kt` (or new RBAC holder) | R1, D5, D6 | additive (SAFE) | ☐ |
+| **P4.4** | **SQL impl — the honest gap (D5/D6).** SQL has **no** RoleInUser/RoleInGroup/UserGroup tables or abstraction today; native membership needs those tables + an `EXISTS … OR EXISTS` query first. **Interim:** SQL declares membership **unsupported / fail-closed** (D6), not silent allow-all (R7). Full native SQL RBAC may be its own sub-blueprint. | `sql/.../SqlRepository.kt`; new SQL RBAC tables (deferred) | R1, R7, D6 | interim fail-closed; native = larger | ☐ |
+| **P4.5** | **Membership conformance + sample.** Cross-engine membership tests (extend the `enforcesPermissions` seam) exercising **group-assigned, no-direct-row** grants on every claiming engine — the exact bypass scenario; plus the P3.3 sample wires a group-only grant and calls the membership API. | `:conformance`; `samples/**` | R8, R12 | SAFE (additive) | ☐ |
+
 ## Immediate next action
 
 G1 committed (`01a0084b`). **D1 locked** 2026-06-21 (user precedence — group < direct user);
@@ -77,8 +98,16 @@ direct-shadows-group **re-confirmed on master** (UPHELD, all three `PermissionTy
 `Default`). **P1.0 landed** (option a, the cathedral choice): SAFE-additive `mongoDbBuilder` param on
 the five RBAC colls — full `:conformance` suite green (memory 11/11, SQL 11/11), no regression.
 **P1.1 landed**: `RbacPermissionResolutionCharacterizationTest` freezes C1–C4 (6 tests,
-compile-verified, skip-clean locally, runs in CI). **Next: lock D2–D6** at the decision gate before
-any Phase-2 semantic change; round out P1.1 (C6 reach, full `upVote` rows) and add P1.2 (C5
-side-effect) / P1.3 (cross-engine profile). **Uncommitted** since `01a0084b`: the D1 lock + R11/P1.0
-artifact updates (LEDGER/CONTRACT/PLAN/BRIEF), the 5-file SAFE production change, and the new
-characterization test — awaiting commit approval.
+compile-verified, skip-clean locally, runs in CI; committed `5bcdbd5e`/`bf2cf035`).
+
+**Membership review (2026-06-21)** added findings R12 (the empirical group-blind bypass — no
+`(userId, appRoleId)` boolean) and R13 (direct-row materialization), corrected R5 to PARTIAL (in-tree
+`insert*` are inert stubs), narrowed R8, and added decisions **D7–D9** + invariant **T6** + **Phase 4**
+(membership API). The two security foot-guns (R3/R4) now have verified concrete unsafe-`Allow`
+reproductions — see the Priority callout.
+
+**Next, in order:** (1) **lock D2/D3 and ship P2.1/P2.2** — the security fixes, highest priority;
+(2) lock the rest of D2–D9; (3) build the membership API as the D5=c port's first concrete artifact
+(P4.1/P4.2 = the consumer's fix, Mongo-first, zero throwaway). **Uncommitted** since `bf2cf035`: this
+review's blueprint additions (BRIEF R5/R12/R13, LEDGER D7–D9, CONTRACT T6, PLAN priority + Phase 4) —
+docs only, no code — awaiting commit approval.

@@ -90,10 +90,13 @@ identical "task not in set" condition (R3). **Changed by D3.**
 
 **Status: Characterized (current)** — Phase-1 pin pending (P1.2). The `appRoleBlock` passed to
 `permissionState` is `appRoleColl.findOne(match) ?: appRoleColl.insertCrudRole(…)` (and the
-single-action sibling `:136-138`). A permission **check** therefore performs a DB **write** the first
-time a given role is queried. The insert does not route through `apiItemProcess`, so `allowApiCrud`,
-change-logging, and per-action permission never run for it; it is **not** in [[repository-write-lifecycle]]
-CONTRACT I7's catalogue of ungated raw writers. **Changed by D4.**
+single-action sibling `:146-149`). The insert call site is on the check path and does not route through
+`apiItemProcess`, so `allowApiCrud`, change-logging, and per-action permission never run for it; it is
+**not** in [[repository-write-lifecycle]] CONTRACT I7's catalogue of ungated raw writers. **Nuance
+(verified 2026-06-21):** in-tree the `insertSingleActionRole`/`insertCrudRole` are **inert stubs**
+returning `ItemState(isOk=false)` (`IAppRoleColl.kt:35-43`, no override), so a check performs **no
+write** unless a downstream consumer overrides them — the hazard is the *mechanism* (an ungated write
+invited on the read path), latent in-tree (R5 PARTIAL). **Changed by D4.**
 
 ### C6 — Backend reach and fail-open default
 
@@ -157,3 +160,30 @@ role default). Group grants apply **only** to users with no direct row for that 
 C2 — the user-vs-group axis is unchanged from current behavior; it is frozen by characterization
 (P1.1) and asserted by the cross-engine suite once the resolution port lands (P3.1). The remaining
 multi-grant conflict resolution (D2) is therefore **intra-group only**.
+
+### T6 — Two distinct group-aware SingleAction membership queries (existence ≠ authz)
+
+**Status: Target (pending D7–D9).** fsLib exposes **two** first-class queries keyed by
+`(userId/User, appRoleId)` → `Boolean` — with **separate, non-overlapping semantics** that must never
+be blended into one verdict:
+
+- **T6a — `hasSingleActionGrant` (pure existence).** ∃ *any* grant edge — a direct `IRoleInUser` row
+  **or** a group grant (`UserGroup`→`RoleInGroup`) — **ignoring** `permission`/defaults/`upVote`. A
+  commutative **union** that resolves no verdict; it reads no `AppRole`. It is **not** an authorization
+  decision and must not be presented as one. D1 precedence is N/A (it never asks "who wins").
+
+- **T6b — `isAllowedSingleAction` (effective authz).** The **D1/T5 precedence resolution restricted to
+  SingleAction**, re-keyed and returning a `Boolean`: a direct grant is **authoritative** (resolved to
+  `Allow`/`Deny`/`Default`→default); groups are consulted **only when there is no direct row**, then by
+  the D2 intra-group rule. It is the **same engine/semantics as `permissionState`** (T2) — so a direct
+  `Allow` + group `Deny` is **`Allow`**, identical to `permissionState`. It is explicitly **not** a flat
+  deny-override union (that would contradict T5). Any future hard-deny-over-direct layer is a separate,
+  explicit decision amending T5/D1 — never folded in here.
+
+Both queries: (i) **never materialize** grant docs — project only needed fields (`countDocuments`/
+`limit(1)`/`$exists` for T6a; a typed `{permission, crudTaskSet}` projection for T6b), never `.first()`
+on the full `RoleInUser` doc (R13); (ii) perform **no `AppRole` provisioning** (T3/D4); (iii) live in the
+**backend-agnostic** layer over the **D5 typed grant-fetch port** (a boolean-only port cannot carry the
+permission/defaults/upVote that T6b needs) so SQL and InMemory answer them natively; (iv) obey the
+**fail-closed** default (T4/D6) when no RBAC backend is configured. Pinned by the cross-engine
+membership conformance coverage (P4).
