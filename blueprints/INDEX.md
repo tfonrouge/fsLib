@@ -7,10 +7,11 @@
 | Blueprint | Mode | Status | Summary |
 |---|---|---|---|
 | [repository-write-lifecycle](repository-write-lifecycle/) | LIBRARY | Complete · shipped in 4.0.0 · optional P3.x/G2 open | Documented and unified the `IRepository` write / delete / lifecycle contract across the Mongo (`Coll`), SQL (`SqlRepository`), and in-memory (`InMemoryRepository`) engines; added a first-class generic-CRUD gate (`allowApiCrud`); pinned every invariant with a cross-engine conformance suite (green in CI, including real Mongo). Released as `4.0.0` (tag `v4.0.0`, Maven Central). |
+| [rbac-permission-resolution](rbac-permission-resolution/) | LIBRARY | Blueprint drafted · decision set D1–D6 pending lock-down | Specify, decide, and unify RBAC permission resolution (user **and** group action assignment) into a total, engine-agnostic algebra; close the default-inversion and discarded-deny foot-guns; make permission checks side-effect-free; replace the fail-open default; pin with characterization + cross-engine conformance tests. |
 
 ## Artifacts per blueprint
 
 - `BRIEF.md` — goal, motivation, findings register, scope, blast radius, definition of done.
-- `CONTRACT.md` — the durable `IRepository` invariants (the spec the code and tests must satisfy).
+- `CONTRACT.md` — the durable invariants / current-vs-target contract the code and tests must satisfy.
 - `LEDGER.md` — decisions with rationale + falsification conditions (both-directions discipline).
 - `PLAN.md` — the ordered, SAFE/BREAKING-labeled implementation steps and their dependencies.
