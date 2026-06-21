@@ -35,7 +35,8 @@
 
 | ID | Step | File anchors | Discharges | Status |
 |----|------|--------------|-----------|--------|
-| **P1.1** | **Characterization suite** for `IRoleInUserColl.permissionState` against a real mongod (Testcontainers, reuse the [[repository-write-lifecycle]] D11 fixture). Freeze: C1 order (root → direct → group → default); C2 direct-row short-circuit incl. `Default`; C3 group aggregation + `upVote` table (all five rows, **including** the discard-explicit-denies fall-through); C4 default-inversion **and** the direct-vs-default disagreement; C6 Mongo-only reach + fail-open for SQL/InMemory. | new `:conformance` permission-resolution profile; `IRoleInUserColl.kt` | R8, C1–C4, C6 | ☐ |
+| **P1.0** | **Testability enabler (SAFE) → option (a), the cathedral choice (2026-06-21).** Added an optional `mongoDbBuilder: MongoDbBuilder? = null` param to the five RBAC abstract colls, forwarded to `Coll` — zero behavior change (default `null` = prior process-global resolution), mirrors `CItemMongoRepository`, removes the only `Coll` subtypes that omitted builder-injection (general-problem + clean-abstraction + established-pattern over the global mutable, R10/R11). Rejected (b) Ktor-plugin global config: novel scaffolding doubling down on the global, order-sensitive shared DB. **SemVer: minor (additive optional param).** Unblocks P1.1–P1.3. | `IAppRoleColl`/`IRoleInUserColl`/`IUserGroupColl`/`IRoleInGroupColl`/`IGroupOfUserColl` ctors | R11 | ✅ done — compile-verified; full `:conformance` suite green (memory 11/11, SQL 11/11), no regression |
+| **P1.1** | **Characterization suite** for `IRoleInUserColl.permissionState` against a real mongod (Testcontainers, reuse the [[repository-write-lifecycle]] D11 fixture). Landed: `RbacPermissionResolutionCharacterizationTest` (6 tests) freezing C1 root short-circuit; C2 direct-row shadows group for `Deny` **and** `Default` (the D1-ratified statement, re-confirmed on master 2026-06-21); C3 single-group `upVote`-ignored **and** the two-group discard-denies fall-through (R4); C4 default-inversion on a `crudTaskSet` miss (R3). Compile-verified; **green-or-skip locally (no Docker), runs in CI** (D11 gate). | `conformance/.../RbacPermissionResolutionCharacterizationTest.kt`; `IRoleInUserColl.kt` | R8, C1–C4 | ◑ C1–C4 frozen; C6 cross-engine reach + the full `upVote` Allow-side rows still to add |
 | **P1.2** | **Characterize the side effect (C5):** a permission check on an unprovisioned role inserts an `AppRole` row (assert the write happens today). Tag for D4. | `MongoRolePermissionProvider.kt`, `CollPermission.kt`, `IAppRoleColl.kt` | R5, C5 | ☐ |
 | **P1.3** | **Permission-resolution conformance profile** scaffold in `:conformance`: engine-agnostic assertion shells for the T-series, **assume-gated** per engine until P3.1 gives non-Mongo engines a resolution path (no committed failing tests; mirrors [[repository-write-lifecycle]] P1.8 discipline). | `:conformance` | R8, T1/T2 scaffolding | ☐ |
 
@@ -46,7 +47,7 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 
 | ID | Step | Discharges | Status |
 |----|------|-----------|--------|
-| **DG** | Resolve and lock **D1–D6** in `LEDGER.md` (pick option per decision; set APPROVED/REJECTED; non-empty falsification each). Recommendations on record: D1=c, D2=d, D3=a, D4=b, D5=c, D6=b. | D1–D6 | ☐ blocked on user lock-down |
+| **DG** | Resolve and lock the decision set in `LEDGER.md` (pick option per decision; set APPROVED/REJECTED; non-empty falsification each). **D1 LOCKED** 2026-06-21 → option (a) user precedence (group < direct user). Remaining recommendations on record: D2=d, D3=a, D4=b, D5=c, D6=b. | D1 ✅ · D2–D6 | ◑ D1 done; D2–D6 pending lock-down |
 
 ## Phase 2 — Semantics · BREAKING · construction (one deliberate decision per locked Dx; major-signal)
 
@@ -55,7 +56,7 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 
 | ID | Step | File anchors | Discharges | Status |
 |----|------|--------------|-----------|--------|
-| **P2.1** | **Totality + conflict rule (D1, D2).** Replace the direct-row short-circuit with grant **composition**; resolve the applicable set by the locked conflict rule; make the single-group case use the same rule; **never** fall through to the role default after explicit grants. Invert the matching P1.1 characterization assertions (red→green). | `IRoleInUserColl.kt` `permissionState`/`getGroupPermission` (→ shared algebra after P3.1) | R2, R4, D1, D2, T1 | ☐ |
+| **P2.1** | **Intra-group totality + conflict rule (D2).** D1 is **user-precedence-ratified**, so the direct-row short-circuit (C2) is **kept unchanged** — no composition. This step touches **only** the group path: apply the locked intra-group conflict rule, make the single-group case use the same rule as multi-group, and **never** fall through to the role default after explicit group grants (closes R4). Invert the matching P1.1 group-path characterization assertions (red→green). | `IRoleInUserColl.kt` `getGroupPermission` (→ shared algebra after P3.1) | R4, D2, T1, T5 (ratified) | ☐ |
 | **P2.2** | **`crudTaskSet`-miss unification (D3).** Remove the default-path inversion; make direct and default paths agree (allow-list semantics, or explicit deny-list flag if D3=c). | `IRoleInUserColl.kt` `buildDefaultAppRolePermission` (→ shared algebra) | R3, D3, T1 | ☐ |
 | **P2.3** | **Side-effect-free resolution (D4).** Remove lazy `AppRole` provisioning from the check path; add the explicit provisioning path (registration/migration/`ensureRoles()`); flip the P1.2 characterization assertion. | `MongoRolePermissionProvider.kt`, `CollPermission.kt`, `IAppRoleColl.kt`, registration site | R5, D4, T3 | ☐ |
 | **P2.4** | **Fail-closed default (D6).** SQL/InMemory fail closed on protected paths unless an explicit permission-free mode is declared; InMemory Action path actually invokes the check. | `SqlRepository.kt`, `InMemoryRepository.kt`, `IRolePermissionProvider.kt` | R7, D6, T4 | ☐ |
@@ -71,7 +72,13 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 
 ## Immediate next action
 
-Author complete (G1). **Awaiting approval to commit the blueprint** (memory: no commit without an
-explicit OK). On approval: commit 1 = this blueprint set + INDEX row; then begin P1.1–P1.3
-(characterization, SAFE) as commit 2; then **lock D1–D6** at the decision gate before any Phase-2
-semantic change.
+G1 committed (`01a0084b`). **D1 locked** 2026-06-21 (user precedence — group < direct user);
+direct-shadows-group **re-confirmed on master** (UPHELD, all three `PermissionType` values incl.
+`Default`). **P1.0 landed** (option a, the cathedral choice): SAFE-additive `mongoDbBuilder` param on
+the five RBAC colls — full `:conformance` suite green (memory 11/11, SQL 11/11), no regression.
+**P1.1 landed**: `RbacPermissionResolutionCharacterizationTest` freezes C1–C4 (6 tests,
+compile-verified, skip-clean locally, runs in CI). **Next: lock D2–D6** at the decision gate before
+any Phase-2 semantic change; round out P1.1 (C6 reach, full `upVote` rows) and add P1.2 (C5
+side-effect) / P1.3 (cross-engine profile). **Uncommitted** since `01a0084b`: the D1 lock + R11/P1.0
+artifact updates (LEDGER/CONTRACT/PLAN/BRIEF), the 5-file SAFE production change, and the new
+characterization test — awaiting commit approval.

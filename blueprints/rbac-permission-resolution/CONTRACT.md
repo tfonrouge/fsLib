@@ -23,8 +23,11 @@
 
 ### C1 — Resolution order (Mongo)
 
-**Status: Characterized (current)** — Phase-1 pin pending (P1.1). For a `(userSession, appRole,
-crudTask?)` query, `IRoleInUserColl.permissionState` (`:184-248`) resolves in this order:
+**Status: Characterized (current)** — root short-circuit and the overall direct→group→default order
+pinned by P1.1 (`RbacPermissionResolutionCharacterizationTest`, Testcontainers / CI; skip-clean
+locally). The `SingleAction`-vs-`CrudTask` duplication row and the full ordering matrix remain to add.
+For a `(userSession, appRole, crudTask?)` query, `IRoleInUserColl.permissionState` (`:184-248`)
+resolves in this order:
 
 ```
 1. rootUser(userId) == true            -> Allow            (:190)
@@ -41,16 +44,23 @@ duplication (`:227-247`, R9) — the real role-type divergence happens inside `g
 
 ### C2 — Direct user row short-circuits groups (including `Default`)
 
-**Status: Characterized (current)** — Phase-1 pin pending (P1.1). Any direct `IRoleInUser` row for
+**Status: Characterized (current)** — pinned by P1.1 for a `CrudTask` direct `Deny` row and a direct
+`Default` row (`directDenyRowShadowsGroupAllow`, `directDefaultRowShadowsGroupAllow`); the direct
+`Allow` row and the `SingleAction` role type remain to add. Any direct `IRoleInUser` row for
 `(userId, appRoleId)` terminates resolution in every branch — `Allow`/`Deny`/`Default` all `return`
 inside `roleInUser?.let { … }` (`:203-226`). A `Default` direct row resolves against
 `appRole.defaultPermission`, **not** against groups. Consequence: groups are a fallback for users with
-*no* direct row, never a compositional layer. **Changed by D1.**
+*no* direct row, never a compositional layer. **Ratified by D1 (user precedence) — this is the target
+behavior (T5); the user-vs-group axis is unchanged in Phase 2, only frozen by characterization.**
 
 ### C3 — Group aggregation and `upVoteInGroup` tie-break (Mongo)
 
-**Status: Characterized (current)** — Phase-1 pin pending (P1.1). `getGroupPermission` (`:302-348`)
-runs a Mongo aggregation: match `IUserGroup.userId == user` → `$lookup` `roleInGroupColl` on
+**Status: Characterized (current)** — the `Deny`-side rows pinned by P1.1 (single-group `Deny` applies
+with `upVote` ignored — `singleGroupDenyApplies_upVoteIgnored`; two-group `Deny` discards into the role
+default — `twoGroupDeniesResolveToRoleDefault_theFootgun`). The full `upVote`/`Allow`-side matrix (the
+`≥2, upVote==Allow & any Allow` and `upVote==Deny` rows, and the size-1 `Allow`/`Default` rows) remains
+to add. `getGroupPermission` (`:302-348`) runs a Mongo aggregation: match `IUserGroup.userId == user` →
+`$lookup` `roleInGroupColl` on
 `groupOfUserId` where `appRoleId == appRole._id` → unwind → `replaceRoot` → `List<RoleInGroup>`
 (decoded into the **file-private fixed-shape** class, not generic `GR` — `:326,353-366`, R6). For
 `CrudTask`, the list is filtered to rows whose `crudTaskSet` contains the task (`:331-333`). Then:
@@ -68,7 +78,9 @@ role default (possibly `Allow`). **Changed by D2.**
 
 ### C4 — `crudTaskSet`-miss default inversion
 
-**Status: Characterized (current)** — Phase-1 pin pending (P1.1). `buildDefaultAppRolePermission`
+**Status: Characterized (current)** — pinned by P1.1 (`denyDefaultInvertsToAllowOnCrudTaskMiss_theFootgun`:
+a `Deny`-default role denies the in-set task `Read` but **inverts to `Allow`** for the not-in-set task
+`Update`). The `Allow`-default side of the inversion table remains to add. `buildDefaultAppRolePermission`
 (`:279-292`) for `CrudTask`: when the task **is not** in `defaultCrudTaskSet`, the default permission
 is **inverted** — `Allow`-default ⇒ `Deny`, `Deny`-default ⇒ **`Allow`** (`:285-290`). The direct-row
 `CrudTask` path returns plain `Deny` for the same miss (`:221`). The two paths **disagree** on the
@@ -85,8 +97,10 @@ CONTRACT I7's catalogue of ungated raw writers. **Changed by D4.**
 
 ### C6 — Backend reach and fail-open default
 
-**Status: Characterized (current)** — Phase-1 pin pending (P1.1). Native group/single-action
-resolution exists **only** in Mongo. Cross-engine reach (verified, R1/R7 upheld):
+**Status: Characterized (current)** — **not yet pinned**; the landed P1.1 covers only the Mongo
+resolution algebra (C1–C4). The cross-engine reach + fail-open table below is documented from the
+audit (R1/R7 upheld) and is pinned later by the cross-engine conformance profile (P1.3). Native
+group/single-action resolution exists **only** in Mongo. Cross-engine reach (verified, R1/R7 upheld):
 
 | Engine | Resolves groups? | No provider registered | Mongo coll booted in-process |
 |---|---|---|---|
@@ -133,3 +147,13 @@ closed** on protected paths or **explicitly declares non-enforcement** (so the a
 allow-all for "checked and allowed"). Silent allow-all on a path the application believes is protected
 is forbidden (closes R7). The samples/tests "permission-free" mode remains valid only as an
 *explicit* declaration, matching the conformance harness's `enforcesPermissions=false` profile.
+
+### T5 — Direct user grant outweighs group grants (LOCKED — D1)
+
+**Status: Target (decided D1, pending pin P2.x parity).** A direct `IRoleInUser` grant for
+`(userId, appRoleId)` is **authoritative**: it resolves the query for that user and role without
+consulting groups, for `Allow`, `Deny`, **and** `Default` (a `Default` direct row resolves to the
+role default). Group grants apply **only** to users with no direct row for that role. This ratifies
+C2 — the user-vs-group axis is unchanged from current behavior; it is frozen by characterization
+(P1.1) and asserted by the cross-engine suite once the resolution port lands (P3.1). The remaining
+multi-grant conflict resolution (D2) is therefore **intra-group only**.
