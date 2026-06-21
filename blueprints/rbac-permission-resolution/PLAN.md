@@ -37,7 +37,7 @@
 |----|------|--------------|-----------|--------|
 | **P1.0** | **Testability enabler (SAFE) → option (a), the cathedral choice (2026-06-21).** Added an optional `mongoDbBuilder: MongoDbBuilder? = null` param to the five RBAC abstract colls, forwarded to `Coll` — zero behavior change (default `null` = prior process-global resolution), mirrors `CItemMongoRepository`, removes the only `Coll` subtypes that omitted builder-injection (general-problem + clean-abstraction + established-pattern over the global mutable, R10/R11). Rejected (b) Ktor-plugin global config: novel scaffolding doubling down on the global, order-sensitive shared DB. **SemVer: minor (additive optional param).** Unblocks P1.1–P1.3. | `IAppRoleColl`/`IRoleInUserColl`/`IUserGroupColl`/`IRoleInGroupColl`/`IGroupOfUserColl` ctors | R11 | ✅ done — compile-verified; full `:conformance` suite green (memory 11/11, SQL 11/11), no regression |
 | **P1.1** | **Characterization suite** for `IRoleInUserColl.permissionState` against a real mongod (Testcontainers, reuse the [[repository-write-lifecycle]] D11 fixture). Landed: `RbacPermissionResolutionCharacterizationTest` (6 tests) freezing C1 root short-circuit; C2 direct-row shadows group for `Deny` **and** `Default` (the D1-ratified statement, re-confirmed on master 2026-06-21); C3 single-group `upVote`-ignored **and** the two-group discard-denies fall-through (R4); C4 default-inversion on a `crudTaskSet` miss (R3). Compile-verified; **green-or-skip locally (no Docker), runs in CI** (D11 gate). | `conformance/.../RbacPermissionResolutionCharacterizationTest.kt`; `IRoleInUserColl.kt` | R8, C1–C4 | ◑ C1–C4 frozen; C6 cross-engine reach + the full `upVote` Allow-side rows still to add |
-| **P1.2** | **Characterize the side effect (C5):** a permission check on an unprovisioned role inserts an `AppRole` row (assert the write happens today). Tag for D4. | `MongoRolePermissionProvider.kt`, `CollPermission.kt`, `IAppRoleColl.kt` | R5, C5 | ☐ |
+| **P1.2** | **Characterize the side effect (C5) — hook-invocation, not a DB write.** In-tree `insert*` are inert stubs, so characterize the real hazard: a test `IAppRoleColl` subclass overrides `insertCrudRole`/`insertSingleActionRole` to **record invocation** (a probe flag); assert that a permission check on a **missing** role **invokes the provisioning hook**. (Land this in the same slice as P2.3, ahead of the flip — red→green discipline.) | `IAppRoleColl.kt`, `IRoleInUserColl.kt`/`CollPermission.kt`/`MongoRolePermissionProvider.kt`; new probe test | R5, C5, D4 | ☐ |
 | **P1.3** | **Permission-resolution conformance profile** scaffold in `:conformance`: engine-agnostic assertion shells for the T-series, **assume-gated** per engine until P3.1 gives non-Mongo engines a resolution path (no committed failing tests; mirrors [[repository-write-lifecycle]] P1.8 discipline). | `:conformance` | R8, T1/T2 scaffolding | ☐ |
 
 **Recommended approval boundary:** land G1 (blueprint) as commit 1; land P1.1–P1.3 (characterization,
@@ -47,7 +47,7 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 
 | ID | Step | Discharges | Status |
 |----|------|-----------|--------|
-| **DG** | Resolve and lock the decision set in `LEDGER.md` (pick option per decision; set APPROVED/REJECTED; non-empty falsification each). **D1/D2/D3 LOCKED** (D1 user precedence; D2 = deny-override + `upVote` opt-in, total; D3 = allow-list no-inversion) — D2/D3 shipped P2.1/P2.2. Remaining recommendations on record: D4=b, D5=c, D6=b; **membership** D7=ship-both, D8=as-stated (existence ≠ authz; effective authz **is** the D1/T5 precedence resolution, not a deny-override union), D9=as-stated (typed port, non-materializing). | D1/D2/D3 ✅ · D4–D9 | ◑ D1/D2/D3 done; D4–D9 pending lock-down |
+| **DG** | Resolve and lock the decision set in `LEDGER.md`. **D1–D6 LOCKED** 2026-06-21: D1 user precedence; D2 total deny-override + `upVote` opt-in; D3 allow-list no-inversion (D2/D3 shipped P2.1/P2.2); **D4** side-effect-free + `ensureRoles()`; **D5** split algebra + typed grant-fetch port; **D6** fail-closed-unless-`Off` via `permissionEnforcement` across SQL + InMemory + Mongo (`CollPermission.kt:38`). **D7–D9** (membership) still OPEN — recommendations: D7=ship-both, D8=existence≠authz, D9=typed-port/non-materializing. | D1–D6 ✅ · D7–D9 | ◑ D1–D6 locked (D4/D5/D6 impl pending); D7–D9 pending lock-down |
 
 > **Priority callout — DONE.** The two **security-critical** fixes shipped 2026-06-21: **P2.1 (D2, the
 > deny-dropping multi-group tie-break, R4)** and **P2.2 (D3, the `crudTaskSet`-miss inversion, R3)** —
@@ -64,8 +64,8 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 |----|------|--------------|-----------|--------|
 | **P2.1** | **Intra-group totality + conflict rule (D2).** D1 is **user-precedence-ratified**, so the direct-row short-circuit (C2) is **kept unchanged**. Touches only the group path: total deny-override + `upVote==Allow` allow-override opt-in, single-group uses the same rule as multi-group, explicit grants never discarded (closes R4). Former foot-gun test flipped red→green (`multiGroupDeniesAreHonoredNotDiscarded`). | `IRoleInUserColl.kt` `getGroupPermission` (→ shared algebra after P3.1) | R4, D2, T1, T5 (ratified) | ✅ done (compile-verified; Mongo test runs red→green in CI) |
 | **P2.2** | **`crudTaskSet`-miss unification (D3).** Removed the default-path inversion; direct and default paths now agree (allow-list: miss ⇒ `Deny`). Former foot-gun test flipped red→green (`crudTaskSetMissUnderDenyDefaultDenies`). | `IRoleInUserColl.kt` `buildDefaultAppRolePermission` | R3, D3, T1 | ✅ done (compile-verified; Mongo test runs red→green in CI) |
-| **P2.3** | **Side-effect-free resolution (D4).** Remove lazy `AppRole` provisioning from the check path; add the explicit provisioning path (registration/migration/`ensureRoles()`); flip the P1.2 characterization assertion. | `MongoRolePermissionProvider.kt`, `CollPermission.kt`, `IAppRoleColl.kt`, registration site | R5, D4, T3 | ☐ |
-| **P2.4** | **Fail-closed default (D6).** SQL/InMemory fail closed on protected paths unless an explicit permission-free mode is declared; InMemory Action path actually invokes the check. | `SqlRepository.kt`, `InMemoryRepository.kt`, `IRolePermissionProvider.kt` | R7, D6, T4 | ☐ |
+| **P2.3** | **Side-effect-free resolution (D4) — next slice.** (1) Remove the lazy `?: insert*` from the three check sites (`IRoleInUserColl.kt:146-149`, `MongoRolePermissionProvider.kt:41-44`, `CollPermission.kt:51-54`) → missing role denies; (2) add `IAppRoleColl.ensureRoles(containers, singleActions): SimpleState` boot entry point; (3) demote `insert*` to provisioning primitives `ensureRoles()` calls. Flip the P1.2 probe red→green (missing role denies **and** hook **not** invoked). **BREAKING** for downstream overriders of `insert*` (migration: call `ensureRoles()` at boot). | `IAppRoleColl.kt`, `IRoleInUserColl.kt`, `MongoRolePermissionProvider.kt`, `CollPermission.kt`; probe test | R5, D4, T3 | ☐ |
+| **P2.4** | **Fail-closed default (D6).** Add core enum `PermissionEnforcement { Enforce, Off }` + `IRepository.permissionEnforcement` (default `Enforce`). Gate all three fail-open sites with it: SQL `:444`, Mongo `CollPermission.kt:38` (`roleInUserColl == null`), InMemory `:409-412` + add the missing Action-branch check (`:334-342`). `InMemoryRepository` overrides to `Off` (named non-enforcing engine mode). Conformance `enforcesPermissions` stays separate (derive from `permissionEnforcement` only where the harness can drive enforcement — SQL now). | core enum; `IRepository.kt`; `SqlRepository.kt`; `CollPermission.kt`; `InMemoryRepository.kt` | R7, D6, T4 | ☐ |
 | **P2.5** | **Cleanup (SAFE).** Collapse the byte-identical `when (roleType)` group-dispatch arms. | `IRoleInUserColl.kt:227-247` | R9 | ☐ |
 
 ## Phase 3 — Abstraction · mostly SAFE-additive · construction
@@ -110,9 +110,13 @@ reproductions — see the Priority callout.
 suite is green/skip-clean (memory 11/11, SQL 11/11; Mongo runs in CI), no regression. **BREAKING** —
 needs a major-signal version bump at release (release/version is the user's call).
 
-**Next, in order:** (1) lock **D4–D6** (side-effect-free checks, the backend-agnostic port, fail-closed
-default); (2) build the membership API as the D5=c port's first concrete artifact (P4.1/P4.2 =
-the consumer's group-blind fix, Mongo-first, zero throwaway); (3) round out characterization (C5/C6,
-the `Allow`-side `upVote` rows). **Uncommitted**: the P2.1/P2.2 code change (`IRoleInUserColl.kt`),
-the two flipped tests, and the blueprint status updates (BRIEF R3/R4, LEDGER D2/D3 locked, CONTRACT
-C3/C4/T1, PLAN) — awaiting commit approval.
+**D4/D5/D6 LOCKED (2026-06-21)** with reviewer-corrected text (D6's `permissionEnforcement` covers all
+three engines incl. Mongo `CollPermission.kt:38`; D4's `ensureRoles()` surface + hook-invocation test
+story; conformance flag kept separate from product policy until P3.1).
+
+**Next, in order:** (1) **P2.3 (D4)** — the next implementation slice: land the P1.2 hook-invocation
+characterization, then flip it (missing role denies, hook not invoked), add `ensureRoles()`; (2) **P2.4
+(D6)** — the `permissionEnforcement` declaration + fail-closed at the three sites; (3) **P3.1 (D5)** —
+the typed grant-fetch port; (4) lock **D7–D9** → **Phase 4** membership API (the consumer's group-blind
+fix). **Uncommitted**: this turn's D4/D5/D6 lock + status updates (LEDGER, CONTRACT C6/T2/T3/T4, BRIEF
+R7, PLAN) — docs only, awaiting commit approval.

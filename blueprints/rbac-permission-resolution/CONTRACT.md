@@ -108,13 +108,15 @@ group/single-action resolution exists **only** in Mongo. Cross-engine reach (ver
 
 | Engine | Resolves groups? | No provider registered | Mongo coll booted in-process |
 |---|---|---|---|
-| Mongo | Yes (native) | n/a | full user→group→`upVote` |
+| Mongo | Yes (native) | **allow-all** (`CollPermission.kt:38`, `roleInUserColl == null`) | full user→group→`upVote` |
 | SQL | Only via the borrowed Mongo provider | **allow-all** (`SqlRepository.kt:444`) | group-aware via Mongo's docs |
 | InMemory | Never (ignores registry) | **allow-all** (`InMemoryRepository.kt:412`) | **still allow-all**; Action path never calls the check |
 | SSR | Delegates to backing repo (`SsrAuth.kt:35`) | follows backing engine | follows backing engine |
 
 The agnostic `IRolePermissionProvider` exposes only `getCrudPermission` — no group, no single-action.
-**Changed by D5 (reach) and D6 (fail-open default).**
+**Changed by D5 (reach, locked) and D6 (fail-open, locked).** D6 gates **all three** fail-open cells
+above — SQL `:444`, InMemory `:412`, and **Mongo `CollPermission.kt:38`** — with the new
+`permissionEnforcement` declaration (default `Enforce` ⇒ deny when no resolver is wired; `Off` ⇒ allow).
 
 ---
 
@@ -135,24 +137,28 @@ moves to the shared layer (P3.1).
 
 ### T2 — One resolution algebra, specified once, asserted everywhere
 
-**Status: Target (pending D5).** The decision tree (precedence, conflict rule, `crudTaskSet`
-semantics, single-action vs CRUD) is specified **once, engine-agnostically**, with each engine
-supplying only a thin grant-fetch port. The same conformance assertions run against every engine that
-claims to enforce. No engine carries a private copy of the policy (closes R1, R6, the C1/C2/C3/C4
-Mongo-locality).
+**Status: Target (decided D5; pending P3.1 pin).** The decision tree (precedence, conflict rule,
+`crudTaskSet` semantics, single-action vs CRUD) is specified **once, engine-agnostically**, with each
+engine supplying only a thin typed grant-fetch port. The same conformance assertions run against every
+engine that claims to enforce. No engine carries a private copy of the policy (closes R1, R6, the
+C1/C2/C3/C4 Mongo-locality).
 
 ### T3 — Permission resolution is side-effect-free
 
-**Status: Target (pending D4).** Evaluating a permission performs **no writes**. `AppRole`
-provisioning, if retained at all, happens through an explicit, modeled, gated path (registration or
-migration), never as a side effect of a check (closes R5; aligns with [[repository-write-lifecycle]]
-I2's side-effect-free principle and I5/I7's "every write is a deliberate, modeled event").
+**Status: Target (decided D4; pending P2.3 pin).** Evaluating a permission performs **no writes**. The
+lazy `findOne ?: insert*` provisioning is removed from the check path (a missing role denies); `AppRole`
+provisioning happens through the explicit `IAppRoleColl.ensureRoles(...)` boot path, never as a side
+effect of a check (closes R5; aligns with [[repository-write-lifecycle]] I2's side-effect-free principle
+and I5/I7's "every write is a deliberate, modeled event"). Pinned by the P1.2→P2.3 hook-invocation
+red→green flip.
 
-### T4 — Safe default: fail closed or declare non-enforcement
+### T4 — Safe default: fail closed or declare non-enforcement (`permissionEnforcement`)
 
-**Status: Target (pending D6).** An engine/deployment that cannot resolve permissions either **fails
-closed** on protected paths or **explicitly declares non-enforcement** (so the app cannot mistake
-allow-all for "checked and allowed"). Silent allow-all on a path the application believes is protected
+**Status: Target (decided D6; pending P2.4 pin).** An engine/deployment that cannot resolve permissions
+either **fails closed** on protected paths or **explicitly declares** non-enforcement via the
+`permissionEnforcement` member (default `Enforce`; `Off` opts out) — so the app cannot mistake allow-all
+for "checked and allowed". The declaration gates **all three** fail-open sites (SQL `:444`, InMemory
+`:412`, Mongo `CollPermission.kt:38`). Silent allow-all on a path the application believes is protected
 is forbidden (closes R7). The samples/tests "permission-free" mode remains valid only as an
 *explicit* declaration, matching the conformance harness's `enforcesPermissions=false` profile.
 
