@@ -20,11 +20,17 @@ import org.litote.kmongo.eq
  * @constructor Initializes the `IAppRoleColl` with the provided common container.
  *
  * @param commonContainer The common container instance used by this collection.
+ * @param mongoDbBuilder Optional Mongo connection builder forwarded to [Coll]; when `null` (the
+ *   default) the collection resolves its database from the process-global Mongo configuration,
+ *   preserving prior behavior. Supplying a builder targets a specific server/database (e.g. a
+ *   per-test Testcontainers instance).
  */
 abstract class IAppRoleColl<T : IAppRole<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
     commonContainer: ICommonContainer<T, ID, FILT>,
+    mongoDbBuilder: MongoDbBuilder? = null,
 ) : Coll<T, ID, FILT, UID>(
-    commonContainer = commonContainer
+    commonContainer = commonContainer,
+    mongoDbBuilder = mongoDbBuilder,
 ) {
     open suspend fun insertSingleActionRole(
         classOwner: String,

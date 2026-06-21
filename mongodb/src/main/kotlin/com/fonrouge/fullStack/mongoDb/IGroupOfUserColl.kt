@@ -14,12 +14,18 @@ import org.litote.kmongo.coroutine.CoroutineCollection
  * @param T The type parameter representing any element associated with the group.
  * @param FILT The type parameter for the API filter used in the group collection.
  * @property commonContainer The common container instance for the group collection.
+ * @param mongoDbBuilder Optional Mongo connection builder forwarded to [Coll]; when `null` (the
+ *   default) the collection resolves its database from the process-global Mongo configuration,
+ *   preserving prior behavior. Supplying a builder targets a specific server/database (e.g. a
+ *   per-test Testcontainers instance).
  */
 @Suppress("unused")
 abstract class IGroupOfUserColl<GOU : IGroupOfUser<T>, T : Any, FILT : IApiFilter<*>, UID : Any>(
     commonContainer: ICommonContainer<GOU, OId<T>, FILT>,
+    mongoDbBuilder: MongoDbBuilder? = null,
 ) : Coll<GOU, OId<T>, FILT, UID>(
-    commonContainer = commonContainer
+    commonContainer = commonContainer,
+    mongoDbBuilder = mongoDbBuilder,
 ) {
     override suspend fun CoroutineCollection<GOU>.indexes() {
         ensureUniqueIndex(IGroupOfUser<T>::description)

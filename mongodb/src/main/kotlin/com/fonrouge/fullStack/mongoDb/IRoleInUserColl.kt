@@ -30,12 +30,20 @@ import kotlin.reflect.KClass
  * @param GOU The type of the group of users.
  * @param FILT The type of the API filter.
  * @param commonContainer A common container object.
+ * @param mongoDbBuilder Optional Mongo connection builder forwarded to [Coll]; when `null` (the
+ *   default) the collection resolves its database from the process-global Mongo configuration,
+ *   preserving prior behavior. Supplying a builder targets a specific server/database (e.g. a
+ *   per-test Testcontainers instance). The sibling RBAC collections ([appRoleColl],
+ *   [roleInGroupColl], [userGroupColl]) must share the same database for [getSingleActionPermission]'s
+ *   group `$lookup` to resolve.
  */
 @Suppress("unused")
 abstract class IRoleInUserColl<RIU : IRoleInUser<U, UID>, U : IUser<UID>, UID : Any, GR : IRoleInGroup<*, GOU>, GOU : IGroupOfUser<*>, FILT : IApiFilter<*>>(
     commonContainer: ICommonContainer<RIU, OId<IRoleInUser<U, UID>>, FILT>,
+    mongoDbBuilder: MongoDbBuilder? = null,
 ) : Coll<RIU, OId<IRoleInUser<U, UID>>, FILT, UID>(
-    commonContainer = commonContainer
+    commonContainer = commonContainer,
+    mongoDbBuilder = mongoDbBuilder,
 ) {
     override suspend fun CoroutineCollection<RIU>.indexes() {
         coroutine.ensureUniqueIndex(
