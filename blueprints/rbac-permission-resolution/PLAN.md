@@ -47,14 +47,13 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 
 | ID | Step | Discharges | Status |
 |----|------|-----------|--------|
-| **DG** | Resolve and lock the decision set in `LEDGER.md` (pick option per decision; set APPROVED/REJECTED; non-empty falsification each). **D1 LOCKED** 2026-06-21 → option (a) user precedence (group < direct user). Remaining recommendations on record: D2=d, D3=a, D4=b, D5=c, D6=b; **membership** D7=ship-both, D8=as-stated (existence ≠ authz; effective authz **is** the D1/T5 precedence resolution, not a deny-override union), D9=as-stated (typed port, non-materializing). | D1 ✅ · D2–D9 | ◑ D1 done; D2–D9 pending lock-down |
+| **DG** | Resolve and lock the decision set in `LEDGER.md` (pick option per decision; set APPROVED/REJECTED; non-empty falsification each). **D1/D2/D3 LOCKED** (D1 user precedence; D2 = deny-override + `upVote` opt-in, total; D3 = allow-list no-inversion) — D2/D3 shipped P2.1/P2.2. Remaining recommendations on record: D4=b, D5=c, D6=b; **membership** D7=ship-both, D8=as-stated (existence ≠ authz; effective authz **is** the D1/T5 precedence resolution, not a deny-override union), D9=as-stated (typed port, non-materializing). | D1/D2/D3 ✅ · D4–D9 | ◑ D1/D2/D3 done; D4–D9 pending lock-down |
 
-> **Priority callout.** The two **security-critical** fixes — **P2.1 (D2, the deny-dropping multi-group
-> tie-break, R4/#3)** and **P2.2 (D3, the `crudTaskSet`-miss inversion, R3/#4)** — are independent of the
-> membership API and of each other. Both have **verified concrete unsafe-`Allow` reproductions**
-> (2026-06-21 review): (R4) `SingleAction`, `upVoteInGroup=Allow`, `defaultPermission=Allow`, two `Deny`
-> groups → `Allow`; (R3) `CrudTask`, `defaultPermission=Deny`, task ∉ `defaultCrudTaskSet`, user with
-> **zero** grants → `Allow`. Lock D2/D3 and ship P2.1/P2.2 **first**, ahead of the membership work.
+> **Priority callout — DONE.** The two **security-critical** fixes shipped 2026-06-21: **P2.1 (D2, the
+> deny-dropping multi-group tie-break, R4)** and **P2.2 (D3, the `crudTaskSet`-miss inversion, R3)** —
+> both had verified concrete unsafe-`Allow` reproductions, now closed and pinned by the two red→green
+> tests (compile-verified; runtime confirmation in CI, no Docker locally). **BREAKING** (resolution
+> verdicts change for affected configs → major-signal bump at release). Done ahead of the membership work.
 
 ## Phase 2 — Semantics · BREAKING · construction (one deliberate decision per locked Dx; major-signal)
 
@@ -63,8 +62,8 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 
 | ID | Step | File anchors | Discharges | Status |
 |----|------|--------------|-----------|--------|
-| **P2.1** | **Intra-group totality + conflict rule (D2).** D1 is **user-precedence-ratified**, so the direct-row short-circuit (C2) is **kept unchanged** — no composition. This step touches **only** the group path: apply the locked intra-group conflict rule, make the single-group case use the same rule as multi-group, and **never** fall through to the role default after explicit group grants (closes R4). Invert the matching P1.1 group-path characterization assertions (red→green). | `IRoleInUserColl.kt` `getGroupPermission` (→ shared algebra after P3.1) | R4, D2, T1, T5 (ratified) | ☐ |
-| **P2.2** | **`crudTaskSet`-miss unification (D3).** Remove the default-path inversion; make direct and default paths agree (allow-list semantics, or explicit deny-list flag if D3=c). | `IRoleInUserColl.kt` `buildDefaultAppRolePermission` (→ shared algebra) | R3, D3, T1 | ☐ |
+| **P2.1** | **Intra-group totality + conflict rule (D2).** D1 is **user-precedence-ratified**, so the direct-row short-circuit (C2) is **kept unchanged**. Touches only the group path: total deny-override + `upVote==Allow` allow-override opt-in, single-group uses the same rule as multi-group, explicit grants never discarded (closes R4). Former foot-gun test flipped red→green (`multiGroupDeniesAreHonoredNotDiscarded`). | `IRoleInUserColl.kt` `getGroupPermission` (→ shared algebra after P3.1) | R4, D2, T1, T5 (ratified) | ✅ done (compile-verified; Mongo test runs red→green in CI) |
+| **P2.2** | **`crudTaskSet`-miss unification (D3).** Removed the default-path inversion; direct and default paths now agree (allow-list: miss ⇒ `Deny`). Former foot-gun test flipped red→green (`crudTaskSetMissUnderDenyDefaultDenies`). | `IRoleInUserColl.kt` `buildDefaultAppRolePermission` | R3, D3, T1 | ✅ done (compile-verified; Mongo test runs red→green in CI) |
 | **P2.3** | **Side-effect-free resolution (D4).** Remove lazy `AppRole` provisioning from the check path; add the explicit provisioning path (registration/migration/`ensureRoles()`); flip the P1.2 characterization assertion. | `MongoRolePermissionProvider.kt`, `CollPermission.kt`, `IAppRoleColl.kt`, registration site | R5, D4, T3 | ☐ |
 | **P2.4** | **Fail-closed default (D6).** SQL/InMemory fail closed on protected paths unless an explicit permission-free mode is declared; InMemory Action path actually invokes the check. | `SqlRepository.kt`, `InMemoryRepository.kt`, `IRolePermissionProvider.kt` | R7, D6, T4 | ☐ |
 | **P2.5** | **Cleanup (SAFE).** Collapse the byte-identical `when (roleType)` group-dispatch arms. | `IRoleInUserColl.kt:227-247` | R9 | ☐ |
@@ -106,8 +105,14 @@ compile-verified, skip-clean locally, runs in CI; committed `5bcdbd5e`/`bf2cf035
 (membership API). The two security foot-guns (R3/R4) now have verified concrete unsafe-`Allow`
 reproductions — see the Priority callout.
 
-**Next, in order:** (1) **lock D2/D3 and ship P2.1/P2.2** — the security fixes, highest priority;
-(2) lock the rest of D2–D9; (3) build the membership API as the D5=c port's first concrete artifact
-(P4.1/P4.2 = the consumer's fix, Mongo-first, zero throwaway). **Uncommitted** since `bf2cf035`: this
-review's blueprint additions (BRIEF R5/R12/R13, LEDGER D7–D9, CONTRACT T6, PLAN priority + Phase 4) —
-docs only, no code — awaiting commit approval.
+**D2/D3 locked and shipped (P2.1/P2.2)** — the two security foot-guns are closed in
+`IRoleInUserColl.kt`, the two former characterization tests flipped red→green, the full `:conformance`
+suite is green/skip-clean (memory 11/11, SQL 11/11; Mongo runs in CI), no regression. **BREAKING** —
+needs a major-signal version bump at release (release/version is the user's call).
+
+**Next, in order:** (1) lock **D4–D6** (side-effect-free checks, the backend-agnostic port, fail-closed
+default); (2) build the membership API as the D5=c port's first concrete artifact (P4.1/P4.2 =
+the consumer's group-blind fix, Mongo-first, zero throwaway); (3) round out characterization (C5/C6,
+the `Allow`-side `upVote` rows). **Uncommitted**: the P2.1/P2.2 code change (`IRoleInUserColl.kt`),
+the two flipped tests, and the blueprint status updates (BRIEF R3/R4, LEDGER D2/D3 locked, CONTRACT
+C3/C4/T1, PLAN) — awaiting commit approval.

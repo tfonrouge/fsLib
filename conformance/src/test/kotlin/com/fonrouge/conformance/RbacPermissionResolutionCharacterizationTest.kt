@@ -33,12 +33,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * **Characterization** of MongoDB RBAC permission resolution (blueprint
- * `rbac-permission-resolution`, PLAN P1.1). These tests freeze the *current* behavior of
- * [IRoleInUserColl.permissionState] / `getGroupPermission` — **including the known foot-guns** — so
- * that the Phase-2 semantic changes (LEDGER D2/D3) are visible, intended diffs against a green
- * baseline. A test here asserts *what is*, not *what should be*; the ones marked `// CHARACTERIZATION`
- * encode behavior the blueprint intends to change and will be inverted at the cited step.
+ * Tests for MongoDB RBAC permission resolution (blueprint `rbac-permission-resolution`).
+ * **Mixed.** *Characterization* (frozen current behavior, PLAN P1.1): `rootUserShortCircuitsToAllow`
+ * (C1), `directDenyRowShadowsGroupAllow` / `directDefaultRowShadowsGroupAllow` (C2). *Correctness*
+ * assertions for the shipped D2/D3 fixes: `multiGroupDeniesAreHonoredNotDiscarded` (P2.1/R4) and
+ * `crudTaskSetMissUnderDenyDefaultDenies` (P2.2/R3) are the former foot-gun characterizations flipped
+ * red→green; `singleGroupDenyResolvesToDeny` and `mixedGroupGrantsAllowWinUnderAllowOverride` pin the
+ * uniform D2 tie-break (deny-override default + `upVote=Allow` allow-override opt-in).
  *
  * Runs against a real mongod via the shared Testcontainers fixture ([MongoTestSupport]); skips
  * locally when Docker is absent (green-or-skip) and runs for real in CI (D11 discipline). Per-instance
@@ -102,14 +103,15 @@ class RbacPermissionResolutionCharacterizationTest {
         )
     }
 
-    // ---- C3 — multi-group tie-break and the discarded-denies foot-gun (R4 → D2) ----
+    // ---- C3 / D2 — group tie-break (uniform total rule) ----
 
     /**
-     * C3: with exactly one matching group row, `upVoteInGroup` is ignored and the single group's `Deny`
-     * applies directly — even though the role is `Allow`-biased.
+     * D2: a single group `Deny` resolves to `Deny` under the **uniform** total rule. (Under the
+     * `Allow`-override branch the rule looks for an `Allow` first, finds none, then honors the `Deny`.)
+     * NB: this is the uniform rule, not the old `size==1` special case that skipped `upVote`.
      */
     @Test
-    fun singleGroupDenyApplies_upVoteIgnored() = runTest {
+    fun singleGroupDenyResolvesToDeny() = runTest {
         val f = RbacFixture()
         val appRole = crudRole(
             defaultPermission = BaseRolePermission.Allow,
@@ -120,18 +122,41 @@ class RbacPermissionResolutionCharacterizationTest {
 
         assertTrue(
             f.resolveCrud(appRole, CrudTask.Read).hasError,
-            "a single group Deny applies directly; upVoteInGroup is not consulted for one row",
+            "D2: single group Deny → Deny (allow-override finds no Allow, so the explicit Deny applies)",
         )
     }
 
     /**
-     * C3/R4 — **the discarded-denies foot-gun.** Two groups each grant `Deny`, but under an
-     * `Allow`-biased role the tie-break finds no `Allow`, so it falls through to the role default
-     * (`Allow`) — silently discarding both explicit denies. CHARACTERIZATION: P2.1 (D2) makes this
-     * resolve to `Deny`.
+     * D2 allow-override branch (option d): with `upVoteInGroup == Allow`, a mixed Allow+Deny group set
+     * resolves to **`Allow`** — the per-role allow-override opt-in lets any `Allow` win over a `Deny`.
+     * Pins the approved allow-override path (the deny-override default is pinned by
+     * `multiGroupDeniesAreHonoredNotDiscarded`).
      */
     @Test
-    fun twoGroupDeniesResolveToRoleDefault_theFootgun() = runTest {
+    fun mixedGroupGrantsAllowWinUnderAllowOverride() = runTest {
+        val f = RbacFixture()
+        val appRole = crudRole(
+            defaultPermission = BaseRolePermission.Deny,   // restrictive default, to prove the Allow grant wins
+            defaultTasks = setOf(CrudTask.Read),
+            upVote = BaseRolePermission.Allow,             // allow-override opt-in
+        )
+        f.grantGroup(appRole, PermissionType.Allow, setOf(CrudTask.Read)) // group 1
+        f.grantGroup(appRole, PermissionType.Deny, setOf(CrudTask.Read))  // group 2
+
+        assertFalse(
+            f.resolveCrud(appRole, CrudTask.Read).hasError,
+            "D2 allow-override: an Allow grant wins over a Deny when upVoteInGroup == Allow",
+        )
+    }
+
+    /**
+     * C3/R4 → **fixed (P2.1, D2).** Two groups each grant `Deny` under an `Allow`-biased role. The
+     * old tie-break found no `Allow` and discarded both denies into the role default (`Allow`); the
+     * D2 total rule honors the explicit denies → `Deny`. This is now a **correctness** assertion (the
+     * red→green flip of the former foot-gun characterization).
+     */
+    @Test
+    fun multiGroupDeniesAreHonoredNotDiscarded() = runTest {
         val f = RbacFixture()
         val appRole = crudRole(
             defaultPermission = BaseRolePermission.Allow,
@@ -141,22 +166,21 @@ class RbacPermissionResolutionCharacterizationTest {
         f.grantGroup(appRole, PermissionType.Deny, setOf(CrudTask.Read)) // group 1
         f.grantGroup(appRole, PermissionType.Deny, setOf(CrudTask.Read)) // group 2
 
-        // CHARACTERIZATION: two explicit Denies currently resolve to the Allow role-default (granted).
-        assertFalse(
+        assertTrue(
             f.resolveCrud(appRole, CrudTask.Read).hasError,
-            "current behavior: 2 group Denies under an Allow-biased role fall through to default=Allow (R4)",
+            "D2: 2 group Denies resolve to Deny — explicit grants are never discarded into the role default (R4 fixed)",
         )
     }
 
-    // ---- C4 — crudTaskSet-miss default inversion (R3 → D3) ----
+    // ---- C4 — crudTaskSet-miss semantics (R3 → D3) ----
 
     /**
-     * C4/R3 — **the default-inversion foot-gun.** A `Deny`-default role with no grant for the user:
-     * a task *in* `defaultCrudTaskSet` denies (expected), but a task *not* in the set **inverts** to
-     * `Allow`. CHARACTERIZATION: P2.2 (D3) removes the inversion.
+     * C4/R3 → **fixed (P2.2, D3).** A `Deny`-default role with no grant for the user: a task *in*
+     * `defaultCrudTaskSet` denies (expected), and a task *not* in the set is now **uncovered → `Deny`**
+     * (allow-list semantics), no longer the old inversion to `Allow`. Correctness assertion.
      */
     @Test
-    fun denyDefaultInvertsToAllowOnCrudTaskMiss_theFootgun() = runTest {
+    fun crudTaskSetMissUnderDenyDefaultDenies() = runTest {
         val f = RbacFixture()
         val appRole = crudRole(defaultPermission = BaseRolePermission.Deny, defaultTasks = setOf(CrudTask.Read))
         // No direct row, no group grant → getGroupPermission is empty → buildDefaultAppRolePermission.
@@ -165,10 +189,9 @@ class RbacPermissionResolutionCharacterizationTest {
             f.resolveCrud(appRole, CrudTask.Read).hasError,
             "task in defaultCrudTaskSet under a Deny-default denies (expected)",
         )
-        // CHARACTERIZATION: Update is NOT in defaultCrudTaskSet, so the Deny-default inverts to Allow.
-        assertFalse(
+        assertTrue(
             f.resolveCrud(appRole, CrudTask.Update).hasError,
-            "current behavior: a crudTaskSet miss under a Deny-default inverts to Allow (R3)",
+            "D3: a crudTaskSet miss is uncovered → Deny, no inversion (R3 fixed)",
         )
     }
 

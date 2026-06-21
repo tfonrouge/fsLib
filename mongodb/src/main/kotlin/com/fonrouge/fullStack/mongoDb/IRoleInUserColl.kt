@@ -290,11 +290,14 @@ abstract class IRoleInUserColl<RIU : IRoleInUser<U, UID>, U : IUser<UID>, UID : 
     ): BaseRolePermission {
         return when (appRole.roleType) {
             RoleType.SingleAction -> appRole.defaultPermission
-            RoleType.CrudTask -> (appRole.defaultCrudTaskSet?.contains(crudTask) == true).let { crudTaskContained ->
-                when (appRole.defaultPermission) {
-                    BaseRolePermission.Allow -> if (crudTaskContained) BaseRolePermission.Allow else BaseRolePermission.Deny
-                    BaseRolePermission.Deny -> if (crudTaskContained) BaseRolePermission.Deny else BaseRolePermission.Allow
-                }
+            // D3 (allow-list, no inversion): `defaultCrudTaskSet` lists the tasks the default covers.
+            // A task in the set takes `defaultPermission`; a task NOT in the set is simply uncovered
+            // and falls to the safe baseline `Deny` — never the former `Deny`-default ⇒ `Allow`
+            // inversion (R3). This now agrees with the direct-row path's not-in-set ⇒ `Deny`.
+            RoleType.CrudTask -> if (appRole.defaultCrudTaskSet?.contains(crudTask) == true) {
+                appRole.defaultPermission
+            } else {
+                BaseRolePermission.Deny
             }
         }
     }
@@ -341,18 +344,27 @@ abstract class IRoleInUserColl<RIU : IRoleInUser<U, UID>, U : IUser<UID>, UID : 
             }
         }
         if (permissionTypes.isEmpty()) return buildDefaultAppRolePermission(appRole, crudTask)
-        if (permissionTypes.size == 1) return when (permissionTypes.first().permission) {
-            PermissionType.Allow -> BaseRolePermission.Allow
-            PermissionType.Deny -> BaseRolePermission.Deny
-            PermissionType.Default -> buildDefaultAppRolePermission(appRole, crudTask)
+        // D2 (total conflict rule, applied uniformly to single- and multi-group sets): the default
+        // bias is deny-override (safe); `upVoteInGroup == Allow` is the explicit per-role allow-override
+        // opt-in. An explicit `Allow`/`Deny` group grant is NEVER discarded into the role default —
+        // the role default applies only when every applicable grant is `Default` (closes R4, satisfies
+        // T1). Previously a 2+-group set whose `upVote` bias was unmet fell through to the role default,
+        // so two `Deny` groups under an `Allow`-biased role could resolve to `Allow`.
+        val hasAllow = permissionTypes.any { it.permission == PermissionType.Allow }
+        val hasDeny = permissionTypes.any { it.permission == PermissionType.Deny }
+        return when (appRole.upVoteInGroup) {
+            BaseRolePermission.Allow -> when {           // allow-override (per-role opt-in)
+                hasAllow -> BaseRolePermission.Allow
+                hasDeny -> BaseRolePermission.Deny
+                else -> buildDefaultAppRolePermission(appRole, crudTask)
+            }
+
+            BaseRolePermission.Deny -> when {            // deny-override (the safe default)
+                hasDeny -> BaseRolePermission.Deny
+                hasAllow -> BaseRolePermission.Allow
+                else -> buildDefaultAppRolePermission(appRole, crudTask)
+            }
         }
-        if (appRole.upVoteInGroup == BaseRolePermission.Allow && permissionTypes.any { it.permission == PermissionType.Allow }) {
-            return BaseRolePermission.Allow
-        }
-        if (appRole.upVoteInGroup == BaseRolePermission.Deny && permissionTypes.any { it.permission == PermissionType.Deny }) {
-            return BaseRolePermission.Deny
-        }
-        return buildDefaultAppRolePermission(appRole, crudTask)
     }
 
     fun userSessionFromCall(call: ApplicationCall?): UserSession<UID>? = call?.sessions?.get<UserSession<UID>>()

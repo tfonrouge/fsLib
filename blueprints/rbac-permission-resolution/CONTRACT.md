@@ -55,36 +55,37 @@ behavior (T5); the user-vs-group axis is unchanged in Phase 2, only frozen by ch
 
 ### C3 — Group aggregation and `upVoteInGroup` tie-break (Mongo)
 
-**Status: Characterized (current)** — the `Deny`-side rows pinned by P1.1 (single-group `Deny` applies
-with `upVote` ignored — `singleGroupDenyApplies_upVoteIgnored`; two-group `Deny` discards into the role
-default — `twoGroupDeniesResolveToRoleDefault_theFootgun`). The full `upVote`/`Allow`-side matrix (the
-`≥2, upVote==Allow & any Allow` and `upVote==Deny` rows, and the size-1 `Allow`/`Default` rows) remains
-to add. `getGroupPermission` (`:302-348`) runs a Mongo aggregation: match `IUserGroup.userId == user` →
-`$lookup` `roleInGroupColl` on
-`groupOfUserId` where `appRoleId == appRole._id` → unwind → `replaceRoot` → `List<RoleInGroup>`
-(decoded into the **file-private fixed-shape** class, not generic `GR` — `:326,353-366`, R6). For
-`CrudTask`, the list is filtered to rows whose `crudTaskSet` contains the task (`:331-333`). Then:
+**Status: Superseded by P2.1 (D2 locked) — the R4 foot-gun is fixed.** The table below described the
+**pre-fix** tie-break; the last row (≥2, bias unmet → role default, discarding explicit grants) was the
+R4 foot-gun. **Current behavior** is now the **D2 total rule**: over the applicable group set, default
+bias is **deny-override** and `upVote==Allow` is the per-role **allow-override** opt-in, applied
+uniformly to single- and multi-group sets; the role default applies **only** when every grant is
+`Default` — an explicit `Allow`/`Deny` is never discarded. Pinned by `multiGroupDeniesAreHonoredNotDiscarded`
+(deny-override, red→green), `mixedGroupGrantsAllowWinUnderAllowOverride` (the `upVote==Allow` allow-override
+branch), and `singleGroupDenyResolvesToDeny` (uniform single-group rule), all in CI. The aggregation shape
+is unchanged: `getGroupPermission` matches `IUserGroup.userId == user` → `$lookup` `roleInGroupColl` on
+`groupOfUserId` where `appRoleId == appRole._id` → unwind → `replaceRoot` → `List<RoleInGroup>` (still
+decoded into the file-private fixed-shape class, R6 — untouched here, addressed by the P4.2 port).
 
-| Matching group rows | Verdict | Anchor |
-|---|---|---|
-| 0 | role default (C4) | `:335` |
-| 1 | that row's `permission` (`Default` ⇒ role default); **`upVote` ignored** | `:336-340` |
-| ≥2, `upVote==Allow` & any `Allow` | `Allow` | `:341-343` |
-| ≥2, `upVote==Deny` & any `Deny` | `Deny` | `:344-346` |
-| ≥2, bias condition unmet | **role default — explicit grants discarded** | `:347` |
+Pre-fix table (historical):
 
-The last row is the **R4 foot-gun**: 2+ explicit `Deny`s under an `Allow`-biased role resolve to the
-role default (possibly `Allow`). **Changed by D2.**
+| Matching group rows | Pre-fix verdict |
+|---|---|
+| 0 | role default (C4) |
+| 1 | that row's `permission`; **`upVote` ignored** |
+| ≥2, `upVote==Allow` & any `Allow` | `Allow` |
+| ≥2, `upVote==Deny` & any `Deny` | `Deny` |
+| ≥2, bias condition unmet | **role default — explicit grants discarded (R4)** |
 
 ### C4 — `crudTaskSet`-miss default inversion
 
-**Status: Characterized (current)** — pinned by P1.1 (`denyDefaultInvertsToAllowOnCrudTaskMiss_theFootgun`:
-a `Deny`-default role denies the in-set task `Read` but **inverts to `Allow`** for the not-in-set task
-`Update`). The `Allow`-default side of the inversion table remains to add. `buildDefaultAppRolePermission`
-(`:279-292`) for `CrudTask`: when the task **is not** in `defaultCrudTaskSet`, the default permission
-is **inverted** — `Allow`-default ⇒ `Deny`, `Deny`-default ⇒ **`Allow`** (`:285-290`). The direct-row
-`CrudTask` path returns plain `Deny` for the same miss (`:221`). The two paths **disagree** on the
-identical "task not in set" condition (R3). **Changed by D3.**
+**Status: Superseded by P2.2 (D3 locked) — the R3 inversion is fixed.** Pre-fix,
+`buildDefaultAppRolePermission` for `CrudTask` **inverted** on a `crudTaskSet` miss (`Allow`-default ⇒
+`Deny`, `Deny`-default ⇒ **`Allow`**), disagreeing with the direct-row path (miss ⇒ `Deny`).
+**Current behavior** (D3 allow-list, no inversion): a task **in** `defaultCrudTaskSet` takes
+`defaultPermission`; a task **not** in the set is uncovered → safe **`Deny`**. Direct and default paths
+now agree on the "task not in set" condition. Pinned by `crudTaskSetMissUnderDenyDefaultDenies`
+(red→green), runs in CI.
 
 ### C5 — Permission checks lazily provision `AppRole` rows (side-effecting read)
 
@@ -121,12 +122,16 @@ The agnostic `IRolePermissionProvider` exposes only `getCrudPermission` — no g
 
 ### T1 — Resolution is total and never discards explicit grants
 
-**Status: Target (pending D1, D2).** Every `(user, action[, crudTask])` query resolves
-**deterministically to exactly `Allow` or `Deny`**. The role default applies **only** when there are
-**zero** applicable explicit grants (direct or group). No path may silently fall through to a default
-*after* explicit grants exist (closes R4), and the direct-row and group/default paths must agree on
-the `crudTaskSet`-miss rule (closes R3, via D3). Pinned by the conformance suite across all claiming
-engines.
+**Status: Enforced on the Mongo engine (P2.1/P2.2, D2/D3); cross-engine pin pending P3.1.** Every
+`(user, action[, crudTask])` query resolves **deterministically to exactly `Allow` or `Deny`**. The
+role default applies **only** when there are **zero** applicable grants **or only `Default` grants** —
+an explicit `Allow`/`Deny` grant is **never discarded** (a `Default` grant intentionally defers to the
+role default: a direct `Default` row → `appRole.defaultPermission`, an all-`Default` group set → role
+default). No path silently falls through to a default *after* an explicit `Allow`/`Deny` grant exists
+(R4 closed by P2.1), and the direct-row and group/default paths agree on the `crudTaskSet`-miss rule
+(R3 closed by P2.2). Pinned on Mongo by `multiGroupDeniesAreHonoredNotDiscarded` +
+`crudTaskSetMissUnderDenyDefaultDenies` (CI); the cross-engine pin lands when the resolution algebra
+moves to the shared layer (P3.1).
 
 ### T2 — One resolution algebra, specified once, asserted everywhere
 
