@@ -47,7 +47,7 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 
 | ID | Step | Discharges | Status |
 |----|------|-----------|--------|
-| **DG** | Resolve and lock the decision set in `LEDGER.md`. **D1–D6 LOCKED** 2026-06-21: D1 user precedence; D2 total deny-override + `upVote` opt-in; D3 allow-list no-inversion (D2/D3 shipped P2.1/P2.2); **D4** side-effect-free + `ensureRoles()` (shipped P2.3); **D5** split algebra + typed grant-fetch port; **D6** fail-closed-unless-`Off` via `permissionEnforcement` across SQL + InMemory + Mongo (`CollPermission.kt:38`). **D7–D9** (membership) still OPEN — recommendations: D7=ship-both, D8=existence≠authz, D9=typed-port/non-materializing. | D1–D6 ✅ · D7–D9 | ◑ D1–D6 locked (D4/D6 shipped; D5 impl pending); D7–D9 pending lock-down |
+| **DG** | Resolve and lock the decision set in `LEDGER.md`. **D1–D6 LOCKED** 2026-06-21: D1 user precedence; D2 total deny-override + `upVote` opt-in; D3 allow-list no-inversion (D2/D3 shipped P2.1/P2.2); **D4** side-effect-free + `ensureRoles()` (shipped P2.3); **D5** split algebra + typed grant-fetch port (shipped P3.1a/P3.1b); **D6** fail-closed-unless-`Off` via `permissionEnforcement` across SQL + InMemory + Mongo (`CollPermission.kt:38`, shipped P2.4). **D7–D9 LOCKED** 2026-06-22 (membership): D7=ship-both, D8=existence≠authz, D9=typed-port/non-materializing — **shipped P4** (`RbacMembership`). | D1–D9 ✅ | ✅ all decisions locked; D2–D6 shipped, D5 shipped (P3.1a/b), D7–D9 shipped (P4) |
 
 > **Priority callout — DONE.** The two **security-critical** fixes shipped 2026-06-21: **P2.1 (D2, the
 > deny-dropping multi-group tie-break, R4)** and **P2.2 (D3, the `crudTaskSet`-miss inversion, R3)** —
@@ -81,14 +81,22 @@ SAFE) as commit 2. Stop there and **lock D1–D6** before any Phase-2 code.
 > The membership API is a **new operation** (D7), not a change to `permissionState`. Its Mongo
 > implementation is the Mongo half of the D5=c grant-fetch port — **zero throwaway**: building it
 > "inside" the port (P4.x) doubles as P3.1's Mongo impl.
+>
+> **As built (2026-06-22):** P4.1 + P4.2 + P4.3 + the conformance half of P4.5 landed as a
+> **single slice** — `RbacMembership` (`fullstack` jvmMain) with `hasSingleActionGrant` (T6a) and
+> `isAllowedSingleAction` (T6b = `RbacResolver.resolve(crudTask=null)`, **not** a union); a new
+> `IRbacGrantPort.fetchAppRolePolicy` (non-provisioning, D4) so T6b is keyed purely by `appRoleId`; Mongo
+> + InMemory port impls; Mongo entry points on `IRoleInUserColl`. Tests: `RbacMembershipTest` (6 InMemory)
+> + the Mongo `groupOnlyMembershipIsSeenByBothOperationsOnMongo` (CI). **Deferred:** P4.4 (native SQL RBAC
+> — the honest gap) and the P4.5 **sample** (rides P3.3).
 
 | ID | Step | File anchors | Discharges | Risk | Status |
 |----|------|--------------|-----------|------|--------|
-| **P4.1** | **Membership port + two algebras (D5=c, D7–D9, T6).** In `fullstack`/`core` add the **typed** grant-fetch port (the same D5=c port): existence fast path `existsDirectGrant`/`existsGroupGrant: Boolean`, **and** typed summaries `fetchDirectGrant(userId, appRoleId): GrantSummary?` / `fetchGroupGrants(userId, appRoleId): List<GrantSummary>` (`{permission, crudTaskSet}`). Two algebras: **T6a `hasSingleActionGrant`** = `existsDirect || existsGroup`; **T6b `isAllowedSingleAction`** = the **`permissionState` precedence resolution restricted to SingleAction** over the typed port (direct authoritative; else D2 intra-group) — **same engine as P3.1**, not a deny-override union. A boolean-only port is explicitly rejected (can't carry permission/defaults/upVote for T6b). | new typed port + 2 algebras; `fullstack` surface | R12, D7, D8, D9, T6 | additive (SAFE) | ☐ |
-| **P4.2** | **Mongo impl — non-materializing (D9, R13).** Existence: `existsDirectGrant` = `countDocuments(and(userId,appRoleId)) > 0`; `existsGroupGrant` = the `getGroupPermission` aggregation terminated at `limit(1)`/count. Typed: `fetchDirectGrant` projects only `{permission, crudTaskSet}` of the direct row (projection + `limit(1)`, **never** `.first()` on the full doc → can't crash on a bad `_id`, R13); `fetchGroupGrants` projects the same from the group aggregation (no `replaceRoot`/private-class decode → sidesteps R6). Keyed by `appRoleId`, no `AppRole` provisioning. **P4.2 + T6a is the consumer's fix.** | `mongodb/.../IRoleInUserColl.kt` (new queries) → port impl | R12, R13, R6, D9 | additive (SAFE) | ☐ |
-| **P4.3** | **InMemory impl (D5/D6).** Two in-heap `any { }` predicates over RoleInUser/RoleInGroup/UserGroup; requires an RBAC-aware holder (InMemory stores one entity type per repo today). Fail-closed when unconfigured (D6). | `memorydb/.../InMemoryRepository.kt` (or new RBAC holder) | R1, D5, D6 | additive (SAFE) | ☐ |
-| **P4.4** | **SQL impl — the honest gap (D5/D6).** SQL has **no** RoleInUser/RoleInGroup/UserGroup tables or abstraction today; native membership needs those tables + an `EXISTS … OR EXISTS` query first. **Interim:** SQL declares membership **unsupported / fail-closed** (D6), not silent allow-all (R7). Full native SQL RBAC may be its own sub-blueprint. | `sql/.../SqlRepository.kt`; new SQL RBAC tables (deferred) | R1, R7, D6 | interim fail-closed; native = larger | ☐ |
-| **P4.5** | **Membership conformance + sample.** Cross-engine membership tests (extend the `enforcesPermissions` seam) exercising **group-assigned, no-direct-row** grants on every claiming engine — the exact bypass scenario; plus the P3.3 sample wires a group-only grant and calls the membership API. | `:conformance`; `samples/**` | R8, R12 | SAFE (additive) | ☐ |
+| **P4.1** | **Membership port + two algebras (D5=c, D7–D9, T6).** In `fullstack`/`core` add the **typed** grant-fetch port (the same D5=c port): existence fast path `existsDirectGrant`/`existsGroupGrant: Boolean`, **and** typed summaries `fetchDirectGrant(userId, appRoleId): GrantSummary?` / `fetchGroupGrants(userId, appRoleId): List<GrantSummary>` (`{permission, crudTaskSet}`). Two algebras: **T6a `hasSingleActionGrant`** = `existsDirect || existsGroup`; **T6b `isAllowedSingleAction`** = the **`permissionState` precedence resolution restricted to SingleAction** over the typed port (direct authoritative; else D2 intra-group) — **same engine as P3.1**, not a deny-override union. A boolean-only port is explicitly rejected (can't carry permission/defaults/upVote for T6b). | new typed port + 2 algebras; `fullstack` surface | R12, D7, D8, D9, T6 | additive (SAFE) | ✅ done — `RbacMembership` (`hasSingleActionGrant` = `existsDirect∥existsGroup`; `isAllowedSingleAction` = `RbacResolver.resolve(crudTask=null)`); port gained `fetchAppRolePolicy`; reuses the P3.1 typed `RoleGrant` fetches |
+| **P4.2** | **Mongo impl — non-materializing (D9, R13).** Existence: `existsDirectGrant` = `countDocuments(and(userId,appRoleId)) > 0`; `existsGroupGrant` = the `getGroupPermission` aggregation terminated at `limit(1)`/count. Typed: `fetchDirectGrant` projects only `{permission, crudTaskSet}` of the direct row (projection + `limit(1)`, **never** `.first()` on the full doc → can't crash on a bad `_id`, R13); `fetchGroupGrants` projects the same from the group aggregation (no `replaceRoot`/private-class decode → sidesteps R6). Keyed by `appRoleId`, no `AppRole` provisioning. **P4.2 + T6a is the consumer's fix.** | `mongodb/.../IRoleInUserColl.kt` (new queries) → port impl | R12, R13, R6, D9 | additive (SAFE) | ✅ done — `existsDirectGrant` = `countDocuments>0`; `existsGroupGrant` = shared `buildGroupGrantPipeline` + `limit(1)`; `fetchAppRolePolicy` = `findOne` + `AppRolePolicy.of` (non-provisioning). **Both ops non-materializing (R13):** `fetchDirectGrant` was changed from `find(...).first()` on the full doc to a `match → $limit(1) → $project {permission, crudTaskSet}` pipeline (also hardens the shared `permissionState` path). |
+| **P4.3** | **InMemory impl (D5/D6).** Two in-heap `any { }` predicates over RoleInUser/RoleInGroup/UserGroup; requires an RBAC-aware holder (InMemory stores one entity type per repo today). Fail-closed when unconfigured (D6). | `memorydb/.../InMemoryRepository.kt` (or new RBAC holder) | R1, D5, D6 | additive (SAFE) | ✅ done — landed as `InMemoryRbacGrantPort` in P3.1b (real in-heap user→group join); P4 added `fetchAppRolePolicy`/`putAppRolePolicy`, so `RbacMembership` runs natively on it (the `RbacMembershipTest` port) |
+| **P4.4** | **SQL impl — the honest gap (D5/D6).** SQL has **no** RoleInUser/RoleInGroup/UserGroup tables or abstraction today; native membership needs those tables + an `EXISTS … OR EXISTS` query first. **Interim:** SQL declares membership **unsupported / fail-closed** (D6), not silent allow-all (R7). Full native SQL RBAC may be its own sub-blueprint. | `sql/.../SqlRepository.kt`; new SQL RBAC tables (deferred) | R1, R7, D6 | interim fail-closed; native = larger | ☐ **deferred** — no SQL RBAC port; `RbacMembership` is unreachable from SQL (no `IRbacGrantPort` impl). SQL stays fail-closed/`Off` (D6). Native SQL RBAC = separate sub-blueprint |
+| **P4.5** | **Membership conformance + sample.** Cross-engine membership tests (extend the `enforcesPermissions` seam) exercising **group-assigned, no-direct-row** grants on every claiming engine — the exact bypass scenario; plus the P3.3 sample wires a group-only grant and calls the membership API. | `:conformance`; `samples/**` | R8, R12 | SAFE (additive) | ◑ **conformance done** — `RbacMembershipTest` (6 InMemory, incl. the group-only bypass) + the Mongo `groupOnlyMembershipIsSeenByBothOperationsOnMongo` (CI). **Sample deferred** (rides P3.3, not yet built) |
 
 ## Immediate next action
 
@@ -121,8 +129,24 @@ conformance Mongo repos declare `Off`; new `unconfiguredDefaultFailsClosedForEnf
 Full suite green (Memory 12/12, SQL 12/12, SSR 53/0; Mongo in CI). **BREAKING** (unconfigured deployments
 flip allow-all → fail-closed).
 
-**Next, in order:** (1) commit P2.4; (2) **P3.1 (D5)** — the typed grant-fetch port (lifts resolution to
-the agnostic layer; the last big structural piece); (3) lock **D7–D9** → **Phase 4** membership API (the
-consumer's group-blind fix). **Uncommitted**: the P2.4 change (core enum, `IRepository.kt`,
-`SqlRepository.kt`, `CollPermission.kt`, `InMemoryRepository.kt`), the conformance `Off` declarations + D6
-test, and these status updates (BRIEF R7, CONTRACT C6/T4, LEDGER D6, PLAN) — awaiting commit approval.
+**P2.4 (D6) committed `658a6226`; P3.1a/P3.1b (D5) shipped** — the resolver runs over two real ports
+(Mongo CI + InMemory local).
+
+**D7–D9 LOCKED 2026-06-22 and P4 (membership API) implemented — the consumer's group-blind fix.** New
+`RbacMembership` (`fullstack` jvmMain) over the D5 port: `hasSingleActionGrant` (existence: direct **OR**
+group) and `isAllowedSingleAction` (effective authz = `RbacResolver.resolve(crudTask=null)`, **not** a
+union — a direct `Allow` beats a group `Deny`, D1/T5). `IRbacGrantPort` gained `fetchAppRolePolicy`
+(non-provisioning, D4) so authz is keyed by `appRoleId` alone. Mongo + InMemory port impls + entry points.
+Suite green (`RbacMembershipTest` 6/6, Memory 12/12, SQL 12/12, `RbacResolverTest` 13/13,
+`InMemoryRbacGrantPortTest` 13/13; Mongo membership test skips locally, runs CI). **SAFE-additive.**
+
+**The P4 slice comprises:** `RbacMembership.kt` (new), `RbacMembershipTest.kt` (new),
+`IRbacGrantPort.kt` (+`fetchAppRolePolicy`), `InMemoryRbacGrantPort.kt` (+`fetchAppRolePolicy`/
+`putAppRolePolicy`), `IRoleInUserColl.kt` (+entry points + Mongo `fetchAppRolePolicy` + the
+`fetchDirectGrant` server-side projection, D9/R13), `RbacPermissionResolutionCharacterizationTest.kt`
+(+Mongo membership test), `RbacResolverTest.kt` (FakeGrantPort `fetchAppRolePolicy` override), and the
+blueprint status updates (LEDGER D7–D9, BRIEF R12/R13, CONTRACT T6, PLAN Phase 4/DG, INDEX row).
+
+**Next, in order:** (1) **P3.2** explicit registration (R10, BREAKING) and/or **P3.3**
+sample (which P4.5's sample rides); (2) **P4.4** native SQL RBAC port — the honest gap (separate
+sub-blueprint). SQL membership stays fail-closed/`Off` until then (D6).

@@ -1,5 +1,6 @@
 package com.fonrouge.fullStack.repository
 
+import com.fonrouge.base.model.AppRolePolicy
 import com.fonrouge.base.model.IAppRole
 import com.fonrouge.base.model.RoleGrant
 import com.fonrouge.base.types.OId
@@ -13,9 +14,27 @@ import com.fonrouge.base.types.OId
  * / in-memory) implements over its own collections. The port returns the engine-neutral [RoleGrant]
  * value type rather than any document type.
  *
+ * Beyond the grant fetches the resolver consumes, the port also exposes [fetchAppRolePolicy] so the
+ * higher-level, group-aware membership API ([RbacMembership]) can be driven purely from a
+ * `(userId, appRoleId)` key — the engine resolves the app role to its backend-agnostic [AppRolePolicy]
+ * snapshot, keeping the membership entry points fully engine- and document-agnostic.
+ *
  * @param UID The user-identifier type (e.g. `OId<TUser>`).
  */
 interface IRbacGrantPort<UID : Any> {
+
+    /**
+     * Resolves the [AppRolePolicy] snapshot for the given app role id, or `null` when no such role exists.
+     *
+     * This is a **non-provisioning** lookup (D4): a missing role yields `null` and the engine performs no
+     * write. It lets the membership API ([RbacMembership.isAllowedSingleAction]) project the concrete app
+     * role into the backend-agnostic policy the resolver consumes, keyed solely by [appRoleId] — so the
+     * membership entry points never hold an engine-specific app-role document.
+     *
+     * @param appRoleId The app role to resolve into a policy snapshot.
+     * @return The [AppRolePolicy] for the role, or `null` when the role does not exist.
+     */
+    suspend fun fetchAppRolePolicy(appRoleId: OId<out IAppRole<*>>): AppRolePolicy?
 
     /**
      * Whether the given user is a root user, which short-circuits resolution to an unconditional allow.

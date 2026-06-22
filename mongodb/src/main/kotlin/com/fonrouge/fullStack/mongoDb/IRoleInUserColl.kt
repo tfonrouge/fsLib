@@ -10,6 +10,7 @@ import com.fonrouge.base.state.ItemState
 import com.fonrouge.base.state.SimpleState
 import com.fonrouge.base.types.OId
 import com.fonrouge.fullStack.repository.IRbacGrantPort
+import com.fonrouge.fullStack.repository.RbacMembership
 import com.fonrouge.fullStack.repository.RbacResolver
 import com.mongodb.client.model.Aggregates
 import com.mongodb.client.model.Projections
@@ -244,6 +245,41 @@ abstract class IRoleInUserColl<RIU : IRoleInUser<U, UID>, U : IUser<UID>, UID : 
     }
 
     /**
+     * Group-aware membership probe: whether a SingleAction grant **edge** exists for `(userId, appRoleId)`
+     * — a direct row OR any group grant — **ignoring** the permission vote, role default and group up-vote.
+     *
+     * This is the non-materializing, group-aware replacement for a raw
+     * `countDocuments(RoleInUser by userId+appRoleId)`: that count is group-blind (it only sees the direct
+     * row and returns `false` for a user who holds the role solely through a group), whereas this sees both
+     * the direct and group edges via [mongoRbacGrantPort]. It answers **existence only** (D8: existence ≠
+     * authz) — an explicit `Deny` edge still reports `true`; use [isAllowedSingleAction] for the effective
+     * authorization decision.
+     *
+     * @param userId The user whose membership is checked.
+     * @param appRoleId The app role being probed.
+     * @return `true` iff a direct OR group grant edge exists for the pair.
+     */
+    suspend fun hasSingleActionGrant(userId: UID, appRoleId: OId<out IAppRole<*>>): Boolean =
+        RbacMembership.hasSingleActionGrant(port = mongoRbacGrantPort, userId = userId, appRoleId = appRoleId)
+
+    /**
+     * Group-aware effective authorization: whether the user is allowed for the SingleAction role
+     * `(userId, appRoleId)` under the full D1/T5 precedence resolution (direct-grant precedence, the
+     * uniform group tie-break, then the role default), restricted to the SingleAction shape.
+     *
+     * This **is** the resolver, **not** a deny-override union over the edges (D8) — a direct `Allow` wins
+     * over a group `Deny` (D1 precedence). The app role is fetched **non-provisioningly** by id through
+     * [mongoRbacGrantPort]; a **missing** role denies (D4: unknown role denies, no provisioning). Like
+     * [hasSingleActionGrant] it is group-aware, replacing the group-blind raw `RoleInUser` count.
+     *
+     * @param userId The user whose authorization is resolved.
+     * @param appRoleId The app role being evaluated.
+     * @return `true` iff the role exists and the precedence resolution yields an allow.
+     */
+    suspend fun isAllowedSingleAction(userId: UID, appRoleId: OId<out IAppRole<*>>): Boolean =
+        RbacMembership.isAllowedSingleAction(port = mongoRbacGrantPort, userId = userId, appRoleId = appRoleId)
+
+    /**
      * The MongoDB-backed [IRbacGrantPort] this collection delegates resolution to.
      *
      * It adapts the RBAC collections to the backend-agnostic grant-fetch port consumed by [RbacResolver]:
@@ -258,17 +294,42 @@ abstract class IRoleInUserColl<RIU : IRoleInUser<U, UID>, U : IUser<UID>, UID : 
         override suspend fun isRootUser(userId: UID): Boolean = rootUser(userId = userId) == true
 
         /**
-         * The user's direct role grant for [appRoleId], or `null` when no direct row exists.
-         * Identical query to the former inline direct-row find, projected to [RoleGrant].
+         * The [AppRolePolicy] for [appRoleId], or `null` when no such app role exists.
+         *
+         * Fetches the app-role document by id from [appRoleColl] (a `_id` filter, consistent with the
+         * existing `appRoleId eq` filters) and projects it via [AppRolePolicy.of]. **Non-provisioning**
+         * (D4): a missing role yields `null` and performs no write — the membership API then denies.
+         */
+        override suspend fun fetchAppRolePolicy(appRoleId: OId<out IAppRole<*>>): AppRolePolicy? {
+            val appRole = appRoleColl.coroutine.findOne(IAppRole<*>::_id eq appRoleId) ?: return null
+            return AppRolePolicy.of(appRole)
+        }
+
+        /**
+         * The user's direct role grant for [appRoleId], or `null` when no direct row exists — projected
+         * **server-side** to exactly `{permission, crudTaskSet}` ([RoleGrant]'s shape) via a
+         * `match → $limit(1) → $project` pipeline, so the full `RoleInUser` document is **never decoded**
+         * (D9/R13): an undecodable `_id` (or any other field) can no longer throw at the check. This is
+         * **behavior-preserving** — the resolver consumes only `permission`/`crudTaskSet` — and uses the
+         * same projection shape as [buildGroupGrantPipeline], proven to decode into [RoleGrant] in CI.
          */
         override suspend fun fetchDirectGrant(userId: UID, appRoleId: OId<out IAppRole<*>>): RoleGrant? {
-            val roleInUser: RIU? = coroutine.find(
-                filter = and(
-                    IRoleInUser<U, UID>::userId eq userId,
-                    IRoleInUser<U, UID>::appRoleId eq appRoleId
-                )
-            ).first()
-            return roleInUser?.let { RoleGrant(permission = it.permission, crudTaskSet = it.crudTaskSet) }
+            val pipeline = mutableListOf<Bson>(
+                match(
+                    and(
+                        IRoleInUser<U, UID>::userId eq userId,
+                        IRoleInUser<U, UID>::appRoleId eq appRoleId
+                    )
+                ),
+                limit(1),
+                Aggregates.project(
+                    Projections.fields(
+                        Projections.include("permission", "crudTaskSet"),
+                        Projections.excludeId(),
+                    )
+                ),
+            )
+            return coroutine.aggregate<RoleGrant>(pipeline = pipeline).first()
         }
 
         /**

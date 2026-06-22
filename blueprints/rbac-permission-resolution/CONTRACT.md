@@ -180,9 +180,14 @@ multi-grant conflict resolution (D2) is therefore **intra-group only**.
 
 ### T6 — Two distinct group-aware SingleAction membership queries (existence ≠ authz)
 
-**Status: Target (pending D7–D9).** fsLib exposes **two** first-class queries keyed by
-`(userId/User, appRoleId)` → `Boolean` — with **separate, non-overlapping semantics** that must never
-be blended into one verdict:
+**Status: Enforced over Mongo + InMemory (P4, D7–D9); SQL deferred (honest gap).** `RbacMembership`
+(`fullstack` jvmMain, over the D5 `IRbacGrantPort`) exposes **two** first-class queries keyed by
+`(userId, appRoleId)` → `Boolean` — with **separate, non-overlapping semantics** that must never be
+blended into one verdict. Implemented over the Mongo (`mongoRbacGrantPort`, CI) and InMemory
+(`InMemoryRbacGrantPort`, local) ports; **SQL has no RBAC port yet** so it cannot answer them natively
+(the honest gap — a native SQL RBAC port is a separate sub-blueprint; until then SQL stays
+fail-closed/`Off`, T4/D6). Pinned by `RbacMembershipTest` (6 InMemory cases) and the Mongo
+`groupOnlyMembershipIsSeenByBothOperationsOnMongo` (CI):
 
 - **T6a — `hasSingleActionGrant` (pure existence).** ∃ *any* grant edge — a direct `IRoleInUser` row
   **or** a group grant (`UserGroup`→`RoleInGroup`) — **ignoring** `permission`/defaults/`upVote`. A
@@ -197,10 +202,20 @@ be blended into one verdict:
   deny-override union (that would contradict T5). Any future hard-deny-over-direct layer is a separate,
   explicit decision amending T5/D1 — never folded in here.
 
-Both queries: (i) **never materialize** grant docs — project only needed fields (`countDocuments`/
-`limit(1)`/`$exists` for T6a; a typed `{permission, crudTaskSet}` projection for T6b), never `.first()`
-on the full `RoleInUser` doc (R13); (ii) perform **no `AppRole` provisioning** (T3/D4); (iii) live in the
-**backend-agnostic** layer over the **D5 typed grant-fetch port** (a boolean-only port cannot carry the
-permission/defaults/upVote that T6b needs) so SQL and InMemory answer them natively; (iv) obey the
-**fail-closed** default (T4/D6) when no RBAC backend is configured. Pinned by the cross-engine
-membership conformance coverage (P4).
+Both queries: (i) perform **no `AppRole` provisioning** (T3/D4) — `hasSingleActionGrant` reads no
+`AppRole`; `isAllowedSingleAction` reads it by `_id` only (`fetchAppRolePolicy`), and a **missing** role
+denies; (ii) live in the **backend-agnostic** layer (`RbacMembership`) over the **D5 typed grant-fetch
+port** (a boolean-only port cannot carry the permission/defaults/upVote that T6b needs), so InMemory and
+Mongo answer them natively (SQL deferred, above); (iii) obey the **fail-closed** default (T4/D6) when no
+RBAC backend is configured.
+
+On **non-materialization (R13):** the guarantee holds for **both** ops. **T6a** (existence) never decodes
+a grant doc (Mongo `existsDirectGrant` = `countDocuments`, `existsGroupGrant` = the group pipeline +
+`limit(1)`). **T6b** (authz) consumes the resolver's typed grant fetches, which are **server-side
+projections** to `{permission, crudTaskSet}` — `fetchDirectGrant` projects the direct row
+(`match → $limit(1) → $project`) and `fetchGroupGrants` projects the group rows — so neither decodes a
+full `RoleInUser` / `RoleInGroup` document and an undecodable `_id` (or any other grant-row field) can no
+longer throw at the check. This **also hardens the shared `permissionState` path** (P3.1a), which now
+reads its direct grant through the same projection. The app-role **policy** read (`fetchAppRolePolicy`)
+does decode the `AppRole` doc — necessary for the defaults/up-vote — but performs no provisioning (D4) and
+is not a *grant* document.

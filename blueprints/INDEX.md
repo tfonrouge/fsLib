@@ -7,7 +7,7 @@
 | Blueprint | Mode | Status | Summary |
 |---|---|---|---|
 | [repository-write-lifecycle](repository-write-lifecycle/) | LIBRARY | Complete · shipped in 4.0.0 · optional P3.x/G2 open | Documented and unified the `IRepository` write / delete / lifecycle contract across the Mongo (`Coll`), SQL (`SqlRepository`), and in-memory (`InMemoryRepository`) engines; added a first-class generic-CRUD gate (`allowApiCrud`); pinned every invariant with a cross-engine conformance suite (green in CI, including real Mongo). Released as `4.0.0` (tag `v4.0.0`, Maven Central). |
-| [rbac-permission-resolution](rbac-permission-resolution/) | LIBRARY | Blueprint drafted · decision set D1–D6 pending lock-down | Specify, decide, and unify RBAC permission resolution (user **and** group action assignment) into a total, engine-agnostic algebra; close the default-inversion and discarded-deny foot-guns; make permission checks side-effect-free; replace the fail-open default; pin with characterization + cross-engine conformance tests. |
+| [rbac-permission-resolution](rbac-permission-resolution/) | LIBRARY | D1–D9 locked · foot-guns + fail-open closed (P2) · resolver extracted to two real ports (P3.1a/b) · group-aware membership API shipped (P4) · open: P3.2 registration, P3.3 sample, native SQL RBAC port | Specify, decide, and unify RBAC permission resolution (user **and** group action assignment) into a total, engine-agnostic algebra; close the default-inversion and discarded-deny foot-guns; make permission checks side-effect-free; replace the fail-open default; add a group-aware `(userId, appRoleId)` membership API; pin with characterization + cross-engine conformance tests. |
 
 ## Artifacts per blueprint
 

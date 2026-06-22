@@ -234,6 +234,34 @@ class RbacPermissionResolutionCharacterizationTest {
         )
     }
 
+    // ---- P4 — group-aware membership API (group-only bypass fixed on the real engine) ----
+
+    /**
+     * P4/D7-D9: the headline bypass fix on the real Mongo engine. A user with **no direct `RoleInUser`
+     * row** but a member of a group that grants a SingleAction role is now seen by both membership
+     * operations: `hasSingleActionGrant` (existence) and `isAllowedSingleAction` (effective authz, group
+     * Allow) are both `true`. The old group-blind `countDocuments(RoleInUser by userId+appRoleId)` would
+     * have returned `false`. Seeds the AppRole doc so `fetchAppRolePolicy` finds it (else authz would deny
+     * on an unknown role).
+     */
+    @Test
+    fun groupOnlyMembershipIsSeenByBothOperationsOnMongo() = runTest {
+        val f = RbacFixture()
+        val appRole = singleActionRole(defaultPermission = BaseRolePermission.Deny)
+        f.seedAppRole(appRole)
+        f.grantGroupSingleAction(appRole, PermissionType.Allow)
+        // Deliberately NO direct RoleInUser row — the user holds the role ONLY through the group.
+
+        assertTrue(
+            f.hasSingleActionGrant(appRole),
+            "group-only membership: hasSingleActionGrant sees the group edge (the raw RoleInUser count would miss it)",
+        )
+        assertTrue(
+            f.isAllowedSingleAction(appRole),
+            "group-only membership: the group Allow grants effective authz (group-blind bypass fixed)",
+        )
+    }
+
     // ---- fixture ----
 
     /** Builds a fresh, wired RBAC collection set sharing one Testcontainers database. */
@@ -301,9 +329,54 @@ class RbacPermissionResolutionCharacterizationTest {
                 classOwner = classOwner,
                 funcName = funcName,
             )
+
+        /** Persists [appRole] so `fetchAppRolePolicy` resolves it by id (raw insert — no hooks/gate). */
+        suspend fun seedAppRole(appRole: TAppRole) {
+            appRoleColl.coroutine.insertOne(appRole)
+        }
+
+        /**
+         * Seeds a new group carrying a SingleAction [appRole] grant (no `crudTaskSet`) and makes [userId] a
+         * member of it — the group edge the membership API walks. Mirrors [grantGroup] but for SingleAction.
+         */
+        suspend fun grantGroupSingleAction(appRole: TAppRole, permission: PermissionType) {
+            val group = TGroupOfUser(description = "g_${OId<TGroupOfUser>().id}")
+            groupOfUserColl.coroutine.insertOne(group)
+            roleInGroupColl.coroutine.insertOne(
+                TRoleInGroup(
+                    groupOfUserId = group._id,
+                    appRoleId = appRole._id,
+                    permission = permission,
+                    crudTaskSet = null,
+                ),
+            )
+            userGroupColl.coroutine.insertOne(TUserGroup(userId = userId, groupOfUserId = group._id))
+        }
+
+        /** Group-aware existence probe for [appRole] / [userId] via the public membership entry point. */
+        suspend fun hasSingleActionGrant(appRole: TAppRole) =
+            riuColl(asRoot = false).hasSingleActionGrant(userId = userId, appRoleId = appRole._id)
+
+        /** Group-aware effective-authz probe for [appRole] / [userId] via the public membership entry point. */
+        suspend fun isAllowedSingleAction(appRole: TAppRole) =
+            riuColl(asRoot = false).isAllowedSingleAction(userId = userId, appRoleId = appRole._id)
     }
 
     private companion object {
+        /** A SingleAction app role with an explicit default permission (no `crudTaskSet`). */
+        fun singleActionRole(
+            defaultPermission: BaseRolePermission,
+            upVote: BaseRolePermission = BaseRolePermission.Allow,
+        ) = TAppRole(
+            classOwner = "Demo_${OId<TAppRole>().id}",
+            funcName = "act_${OId<TAppRole>().id}",
+            roleType = RoleType.SingleAction,
+            description = "demo_${OId<TAppRole>().id}",
+            defaultPermission = defaultPermission,
+            defaultCrudTaskSet = null,
+            upVoteInGroup = upVote,
+        )
+
         /** A CRUD-type app role with explicit default permission / task set / group-vote bias. */
         fun crudRole(
             defaultPermission: BaseRolePermission,

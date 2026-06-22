@@ -1,5 +1,6 @@
 package com.fonrouge.fullStack.memoryDb
 
+import com.fonrouge.base.model.AppRolePolicy
 import com.fonrouge.base.model.IAppRole
 import com.fonrouge.base.model.RoleGrant
 import com.fonrouge.base.types.OId
@@ -39,6 +40,13 @@ class InMemoryRbacGrantPort<UID : Any> : IRbacGrantPort<UID> {
      * matching rows for the same role, so the value is a list (all are returned by the join).
      */
     private val groupGrants: ConcurrentHashMap<GroupGrantKey, MutableList<RoleGrant>> = ConcurrentHashMap()
+
+    /**
+     * App-role policy snapshots keyed by app-role id; consulted by [fetchAppRolePolicy] so the membership
+     * API can resolve a `(userId, appRoleId)` key without an engine-specific app-role document. A role
+     * absent from this map is "unknown" and [fetchAppRolePolicy] returns `null` (no provisioning).
+     */
+    private val appRolePolicies: ConcurrentHashMap<OId<out IAppRole<*>>, AppRolePolicy> = ConcurrentHashMap()
 
     /**
      * Composite key for a direct user grant.
@@ -104,7 +112,28 @@ class InMemoryRbacGrantPort<UID : Any> : IRbacGrantPort<UID> {
             .add(grant)
     }
 
+    /**
+     * Stores (or replaces) the [AppRolePolicy] snapshot for an app role, keyed by [AppRolePolicy.id], so
+     * [fetchAppRolePolicy] (and thus the membership API) can resolve the role by id. Roles never seeded
+     * are "unknown" and resolve to `null` (no provisioning).
+     *
+     * @param policy The app-role policy to register; its [AppRolePolicy.id] is the lookup key.
+     */
+    fun putAppRolePolicy(policy: AppRolePolicy) {
+        appRolePolicies[policy.id] = policy
+    }
+
     // ---- IRbacGrantPort ----
+
+    /**
+     * Returns the seeded [AppRolePolicy] for the app role, or `null` when none was seeded (unknown role,
+     * no provisioning).
+     *
+     * @param appRoleId The app role to resolve into a policy snapshot.
+     * @return The seeded [AppRolePolicy], or `null`.
+     */
+    override suspend fun fetchAppRolePolicy(appRoleId: OId<out IAppRole<*>>): AppRolePolicy? =
+        appRolePolicies[appRoleId]
 
     /**
      * Whether [userId] was seeded as a root user.

@@ -270,6 +270,8 @@ private class FakeGrantPort(
     private val directGrant: RoleGrant? = null,
     private val groupGrants: List<RoleGrant> = emptyList(),
 ) : IRbacGrantPort<OId<Any>> {
+    /** Unused by the pure resolver tests (they pass an explicit policy to [RbacResolver.resolve]). */
+    override suspend fun fetchAppRolePolicy(appRoleId: OId<out IAppRole<*>>): AppRolePolicy? = null
     override suspend fun isRootUser(userId: OId<Any>): Boolean = root
     override suspend fun fetchDirectGrant(userId: OId<Any>, appRoleId: OId<out IAppRole<*>>): RoleGrant? = directGrant
     override suspend fun fetchGroupGrants(userId: OId<Any>, appRoleId: OId<out IAppRole<*>>): List<RoleGrant> = groupGrants
