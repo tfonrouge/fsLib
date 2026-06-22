@@ -213,25 +213,24 @@ class RbacPermissionResolutionCharacterizationTest {
     // ---- C5 / D4 — lazy provisioning hook on the check path (R5) ----
 
     /**
-     * C5/R5 — **P1.2 characterization (the red baseline for D4).** A permission check on a **missing**
-     * SingleAction role **invokes the lazy provisioning hook** (`insertSingleActionRole`) on the check
-     * path. The in-tree hook is an inert stub (no DB write), so the role still "doesn't exist" and the
-     * check denies — but the hook *is* invoked. P2.3 (D4) removes the lazy call; this test then flips to
-     * assert the hook is **not** invoked (while still denying) — a genuine red→green.
+     * C5/R5 → **fixed (P2.3, D4).** After removing the lazy `?: insertSingleActionRole` from the check
+     * path, a permission check on a **missing** SingleAction role **denies** and **does not invoke** the
+     * provisioning hook. This is the red→green flip of `missingSingleActionRoleInvokesProvisioningHook`
+     * (P1.2, committed `c5a09a6c`). Roles are now provisioned explicitly via `IAppRoleColl.ensureRoles(...)`.
      */
     @Test
-    fun missingSingleActionRoleInvokesProvisioningHook() = runTest {
+    fun missingSingleActionRoleDeniesWithoutProvisioning() = runTest {
         val f = RbacFixture()
-        // No AppRole seeded for ("Demo","act") → the check hits the lazy `findOne ?: insert` site.
+        // No AppRole seeded for ("Demo","act"); the lazy provisioning site has been removed.
         val state = f.resolveSingleAction(classOwner = "Demo", funcName = "act")
 
         assertTrue(
-            f.appRoleColl.singleActionInsertInvoked,
-            "P1.2: a check on a missing SingleAction role invokes the lazy provisioning hook",
-        )
-        assertTrue(
             state.hasError,
-            "the unprovisioned role denies (the inert stub yields no role)",
+            "P2.3: a missing SingleAction role denies",
+        )
+        assertFalse(
+            f.appRoleColl.singleActionInsertInvoked,
+            "P2.3: the provisioning hook is NOT invoked on the check path",
         )
     }
 
@@ -292,9 +291,9 @@ class RbacPermissionResolutionCharacterizationTest {
             ) { ItemState(item = appRole) }
 
         /**
-         * Resolves a SingleAction permission via the public `getSingleActionPermission` entry — the path
-         * that exercises the lazy `findOne ?: insertSingleActionRole` provisioning site (A) when the role
-         * is missing. Does not seed an `AppRole`, so the lazy hook is reached.
+         * Resolves a SingleAction permission via the public `getSingleActionPermission` entry — the
+         * SingleAction check path (site A). No `AppRole` is seeded, so the role is missing: after P2.3 it
+         * denies without invoking any provisioning hook (pre-P2.3 it reached the lazy `insertSingleActionRole`).
          */
         suspend fun resolveSingleAction(classOwner: String, funcName: String) =
             riuColl(asRoot = false).getSingleActionPermission(
@@ -318,6 +317,46 @@ class RbacPermissionResolutionCharacterizationTest {
             defaultPermission = defaultPermission,
             defaultCrudTaskSet = defaultTasks,
             upVoteInGroup = upVote,
+        )
+    }
+}
+
+/**
+ * Local (no-Docker) test for the explicit provisioning surface added in P2.3 (D4). `ensureRoles` only
+ * delegates to the `insert*` primitives (probes here) and performs no DB I/O, so it runs without a
+ * mongod. Proves the surface **delegates** to both primitives and **aggregates** their success/failure
+ * (no false success) — it does not exercise real persistence.
+ */
+class RbacEnsureRolesTest {
+
+    /** ensureRoles delegates to both primitives and aggregates to OK when they all succeed. */
+    @Test
+    fun ensureRolesInvokesProvisioningPrimitivesAndSucceeds() = runTest {
+        val appRoleColl = TAppRoleColl(MongoDbBuilder()) // no connection — ensureRoles does no DB I/O
+
+        val state = appRoleColl.ensureRoles(
+            crudContainers = listOf(CommonCItem),
+            singleActions = listOf("Demo" to "act"),
+        )
+
+        assertFalse(state.hasError, "ensureRoles aggregates to OK when every primitive succeeds")
+        assertTrue(appRoleColl.crudInsertInvoked, "ensureRoles delegates to insertCrudRole")
+        assertTrue(appRoleColl.singleActionInsertInvoked, "ensureRoles delegates to insertSingleActionRole")
+    }
+
+    /** ensureRoles must SURFACE failure, not lie: a failing primitive yields an error state. */
+    @Test
+    fun ensureRolesSurfacesPrimitiveFailure() = runTest {
+        val appRoleColl = TFailingAppRoleColl(MongoDbBuilder()) // primitives keep the inert isOk=false default
+
+        val state = appRoleColl.ensureRoles(
+            crudContainers = listOf(CommonCItem),
+            singleActions = listOf("Demo" to "act"),
+        )
+
+        assertTrue(
+            state.hasError,
+            "ensureRoles must report failure when a provisioning primitive fails (no false success)",
         )
     }
 }
@@ -387,10 +426,10 @@ private data class TUserGroup(
 
 /**
  * App-role collection for characterization, instrumented with **provisioning-hook invocation probes**.
- * `insertSingleActionRole`/`insertCrudRole` record whether the lazy provisioning hook was called (the
- * in-tree defaults are inert stubs returning `isOk=false`, so they perform no write — the probe captures
- * *invocation*, not a DB write). Used to prove P1.2 (a check on a missing role invokes the hook) and,
- * after P2.3, that it no longer does.
+ * `insertSingleActionRole`/`insertCrudRole` record whether the hook was called, and (unlike the inert
+ * in-tree defaults that return `isOk=false`) return a **successful** `ItemState` — modeling a real
+ * downstream impl that provisions, so `ensureRoles` aggregates to success. Used to prove P1.2 (a check on
+ * a missing role invokes the hook), that P2.3 stops invoking it, and that `ensureRoles` reaches both hooks.
  */
 private class TAppRoleColl(builder: MongoDbBuilder) :
     IAppRoleColl<TAppRole, OId<TAppRole>, ApiFilter, OId<TUser>>(simpleContainer<TAppRole, OId<TAppRole>>(), builder) {
@@ -403,13 +442,22 @@ private class TAppRoleColl(builder: MongoDbBuilder) :
 
     override suspend fun insertSingleActionRole(classOwner: String, funcName: String): ItemState<TAppRole> {
         singleActionInsertInvoked = true
-        return super.insertSingleActionRole(classOwner, funcName)
+        return ItemState(isOk = true) // model a downstream impl that successfully provisions
     }
 
     override suspend fun insertCrudRole(container: ICommonContainer<*, *, *>, crudTask: CrudTask): ItemState<TAppRole> {
         crudInsertInvoked = true
-        return super.insertCrudRole(container, crudTask)
+        return ItemState(isOk = true)
     }
+}
+
+/**
+ * App-role collection whose provisioning primitives keep the inert in-tree default (`isOk=false`), i.e.
+ * a subclass that never actually provisions. Used to prove `ensureRoles` **surfaces** that failure.
+ */
+private class TFailingAppRoleColl(builder: MongoDbBuilder) :
+    IAppRoleColl<TAppRole, OId<TAppRole>, ApiFilter, OId<TUser>>(simpleContainer<TAppRole, OId<TAppRole>>(), builder) {
+    override val userCollFun: () -> IUserColl<*, OId<TUser>, *>? = { null }
 }
 
 /** Group collection for characterization. */

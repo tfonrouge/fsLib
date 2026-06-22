@@ -141,16 +141,13 @@ abstract class IRoleInUserColl<RIU : IRoleInUser<U, UID>, U : IUser<UID>, UID : 
             userSession = userSession,
             crudTask = null
         ) {
+            // D4 (side-effect-free): resolution does NOT provision. A missing role denies; roles are
+            // provisioned explicitly at boot via IAppRoleColl.ensureRoles(...). (Was: `?: insertSingleActionRole(...)`.)
             appRoleColl.coroutine.findOne(matchAppRole)?.let {
-                ItemState(item = it)
-            } ?: appRoleColl.insertSingleActionRole(
-                classOwner = classOwner,
-                funcName = funcName
-            ).item?.let {
                 ItemState(item = it)
             } ?: ItemState(
                 isOk = false,
-                msgError = "App role doesn't exist '$matchLabel' ... "
+                msgError = "App role doesn't exist '$matchLabel'"
             )
         }
     }

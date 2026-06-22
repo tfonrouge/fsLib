@@ -46,12 +46,9 @@ internal suspend fun <T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any
         roleType = RoleType.CrudTask,
         crudTask = crudTask,
     ) {
+        // D4 (side-effect-free): resolution does NOT provision. A missing role denies; roles are
+        // provisioned explicitly at boot via IAppRoleColl.ensureRoles(...). (Was: `?: insertCrudRole(...)`.)
         roleInUserColl.appRoleColl.findOne(matchDoc)?.let {
-            ItemState(item = it)
-        } ?: roleInUserColl.appRoleColl.insertCrudRole(
-            container = commonContainer,
-            crudTask = crudTask
-        ).item?.let {
             ItemState(item = it)
         } ?: ItemState(
             isOk = false,

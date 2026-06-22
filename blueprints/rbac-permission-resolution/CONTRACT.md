@@ -89,15 +89,14 @@ now agree on the "task not in set" condition. Pinned by `crudTaskSetMissUnderDen
 
 ### C5 — Permission checks lazily provision `AppRole` rows (side-effecting read)
 
-**Status: Characterized (current)** — Phase-1 pin pending (P1.2). The `appRoleBlock` passed to
-`permissionState` is `appRoleColl.findOne(match) ?: appRoleColl.insertCrudRole(…)` (and the
-single-action sibling `:146-149`). The insert call site is on the check path and does not route through
-`apiItemProcess`, so `allowApiCrud`, change-logging, and per-action permission never run for it; it is
-**not** in [[repository-write-lifecycle]] CONTRACT I7's catalogue of ungated raw writers. **Nuance
-(verified 2026-06-21):** in-tree the `insertSingleActionRole`/`insertCrudRole` are **inert stubs**
-returning `ItemState(isOk=false)` (`IAppRoleColl.kt:35-43`, no override), so a check performs **no
-write** unless a downstream consumer overrides them — the hazard is the *mechanism* (an ungated write
-invited on the read path), latent in-tree (R5 PARTIAL). **Changed by D4.**
+**Status: Superseded by P2.3 (D4 locked) — the lazy provisioning is removed.** Pre-fix, the
+`appRoleBlock` did `findOne(match) ?: insertCrudRole/insertSingleActionRole` on the check path — an
+ungated write invited on the read path (latent in-tree, where `insert*` were inert stubs). P1.2
+characterized the hazard as **hook invocation** (`missingSingleActionRoleInvokesProvisioningHook`,
+`c5a09a6c`). **Current behavior** (P2.3): the `?: insert*` is removed from all three sites — a missing
+role denies, and the provisioning hook is **not** invoked; roles are provisioned explicitly via
+`IAppRoleColl.ensureRoles(...)`. Pinned by `missingSingleActionRoleDeniesWithoutProvisioning` (red→green)
++ `RbacEnsureRolesTest` (delegation, runs locally).
 
 ### C6 — Backend reach and fail-open default
 
@@ -145,12 +144,13 @@ C1/C2/C3/C4 Mongo-locality).
 
 ### T3 — Permission resolution is side-effect-free
 
-**Status: Target (decided D4; pending P2.3 pin).** Evaluating a permission performs **no writes**. The
-lazy `findOne ?: insert*` provisioning is removed from the check path (a missing role denies); `AppRole`
-provisioning happens through the explicit `IAppRoleColl.ensureRoles(...)` boot path, never as a side
-effect of a check (closes R5; aligns with [[repository-write-lifecycle]] I2's side-effect-free principle
-and I5/I7's "every write is a deliberate, modeled event"). Pinned by the P1.2→P2.3 hook-invocation
-red→green flip.
+**Status: Enforced on the Mongo engine (P2.3, D4); cross-engine pin pending P3.1.** Evaluating a
+permission performs **no writes**. The lazy `findOne ?: insert*` provisioning is removed from all three
+check sites (a missing role denies); `AppRole` provisioning happens through the explicit
+`IAppRoleColl.ensureRoles(...)` boot path, never as a side effect of a check (closes R5; aligns with
+[[repository-write-lifecycle]] I2's side-effect-free principle and I5/I7's "every write is a deliberate,
+modeled event"). Pinned on Mongo by the P1.2→P2.3 hook-invocation red→green flip
+(`missingSingleActionRoleDeniesWithoutProvisioning`) plus `RbacEnsureRolesTest`.
 
 ### T4 — Safe default: fail closed or declare non-enforcement (`permissionEnforcement`)
 
