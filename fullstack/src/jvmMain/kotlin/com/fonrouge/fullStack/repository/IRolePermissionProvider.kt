@@ -38,13 +38,18 @@ interface IRolePermissionProvider {
  * during initialization. Other repository implementations (e.g., [SqlRepository])
  * query this registry to check CRUD permissions without depending on MongoDB types.
  *
- * When no provider is registered, permission checks default to "allowed".
+ * When no provider is registered, the outcome is **not** unconditionally "allowed": each repository's
+ * `permissionEnforcement` (RBAC blueprint D6, since P2.4) decides. An enforcing repository
+ * (`PermissionEnforcement.Enforce`, the default) **fails closed** on a remote write when no provider is
+ * wired; a non-enforcing one (`PermissionEnforcement.Off`) treats the missing provider as allowed.
  */
 object PermissionRegistry {
 
     /**
      * The currently registered permission provider, or null if none is registered.
-     * When null, all permission checks are implicitly allowed.
+     *
+     * When null, the effective verdict is governed by the calling repository's `permissionEnforcement`
+     * (Enforce ⇒ fail-closed for remote writes; Off ⇒ allowed) — it is not implicitly allowed.
      */
     var rolePermissionProvider: IRolePermissionProvider? = null
 }

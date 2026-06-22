@@ -9,10 +9,13 @@ import com.fonrouge.base.model.IAppRole.RoleType
 import com.fonrouge.base.state.ItemState
 import com.fonrouge.base.state.SimpleState
 import com.fonrouge.base.types.OId
+import com.fonrouge.fullStack.repository.IRbacGrantPort
+import com.fonrouge.fullStack.repository.RbacResolver
+import com.mongodb.client.model.Aggregates
+import com.mongodb.client.model.Projections
 import com.mongodb.client.model.UnwindOptions
 import io.ktor.server.application.*
 import io.ktor.server.sessions.*
-import kotlinx.serialization.Serializable
 import org.bson.conversions.Bson
 import org.litote.kmongo.*
 import org.litote.kmongo.coroutine.CoroutineCollection
@@ -192,54 +195,29 @@ abstract class IRoleInUserColl<RIU : IRoleInUser<U, UID>, U : IUser<UID>, UID : 
         crudTask: CrudTask? = null,
         appRoleBlock: suspend () -> ItemState<out IAppRole<*>>,
     ): SimpleState {
+        // Root short-circuit is kept at the entry point so its bespoke "as rootUser" SimpleState text is
+        // preserved (the pure resolver returns only a BaseRolePermission). RbacResolver.resolve also
+        // re-checks root via the port — harmless and keeps the resolver self-contained.
         if (rootUser(userId = userSession.userId) == true) return SimpleState(isOk = true, msgOk = "as rootUser")
+        // AppRole resolution stays at the entry point (the appRoleBlock pattern is unchanged).
         val appRole: IAppRole<*> = appRoleBlock().let { itemState ->
             itemState.item ?: return SimpleState(
                 isOk = false,
                 msgError = itemState.msgError ?: "App role doesn't exist"
             )
         }
-        val roleInUser: RIU? = coroutine.find(
-            filter = and(
-                IRoleInUser<U, UID>::userId eq userSession.userId,
-                IRoleInUser<U, UID>::appRoleId eq appRole._id
-            )
-        ).first()
-        roleInUser?.let { it: RIU ->
-            return when (roleType) {
-                RoleType.SingleAction -> when (it.permission) {
-                    PermissionType.Allow -> buildSimpleState(BaseRolePermission.Allow, appRole, null)
-                    PermissionType.Deny -> buildSimpleState(BaseRolePermission.Deny, appRole, null)
-                    PermissionType.Default -> buildSimpleState(appRole.defaultPermission, appRole, null)
-                }
-
-                RoleType.CrudTask -> buildSimpleState(
-                    baseRolePermission = if (it.crudTaskSet?.contains(crudTask) == true) {
-                        when (it.permission) {
-                            PermissionType.Allow -> BaseRolePermission.Allow
-                            PermissionType.Deny -> BaseRolePermission.Deny
-                            PermissionType.Default -> when (appRole.defaultPermission) {
-                                BaseRolePermission.Allow -> BaseRolePermission.Allow
-                                BaseRolePermission.Deny -> BaseRolePermission.Deny
-                            }
-                        }
-                    } else BaseRolePermission.Deny,
-                    appRole = appRole,
-                    crudTask = crudTask
-                )
-            }
-        }
-        // No direct row → group resolution. Both role types resolve identically here (R9): the
-        // SingleAction-vs-CrudTask divergence lives inside getGroupPermission / buildDefaultAppRolePermission,
-        // not at this dispatch — so the former byte-identical `when (roleType)` arms are collapsed.
+        // Delegate the (preserved) resolution algebra to the backend-agnostic resolver over the Mongo port,
+        // then wrap the BaseRolePermission verdict with buildSimpleState (output identical to before).
+        val baseRolePermission = RbacResolver.resolve(
+            userId = userSession.userId,
+            policy = AppRolePolicy.of(appRole),
+            crudTask = crudTask,
+            port = mongoRbacGrantPort,
+        )
         return buildSimpleState(
-            baseRolePermission = getGroupPermission(
-                userSession = userSession,
-                appRole = appRole,
-                crudTask = crudTask
-            ),
+            baseRolePermission = baseRolePermission,
             appRole = appRole,
-            crudTask = crudTask
+            crudTask = crudTask,
         )
     }
 
@@ -266,54 +244,84 @@ abstract class IRoleInUserColl<RIU : IRoleInUser<U, UID>, U : IUser<UID>, UID : 
     }
 
     /**
-     * Builds the default application role permission based on the role type and optional CRUD task.
+     * The MongoDB-backed [IRbacGrantPort] this collection delegates resolution to.
      *
-     * @param appRole The application role for which the permission is being built.
-     * @param crudTask An optional CRUD task specifying the type of CRUD operation. Default is null.
-     * @return The default base role permission, either Allow or Deny, depending on the role type and CRUD task.
+     * It adapts the RBAC collections to the backend-agnostic grant-fetch port consumed by [RbacResolver]:
+     * `fetchDirectGrant` is the former direct-row `find`, projected to a [RoleGrant]; `fetchGroupGrants`
+     * is the former `getGroupPermission` `$lookup` aggregation, projected to [RoleGrant] (this REPLACES
+     * the prior file-private `RoleInGroup`/`GroupOfUser` decode). The `exists*` probes are the
+     * Phase-4-ready cheap existence checks (count / `limit(1)` aggregation).
      */
-    private fun buildDefaultAppRolePermission(
-        appRole: IAppRole<*>,
-        crudTask: CrudTask? = null,
-    ): BaseRolePermission {
-        return when (appRole.roleType) {
-            RoleType.SingleAction -> appRole.defaultPermission
-            // D3 (allow-list, no inversion): `defaultCrudTaskSet` lists the tasks the default covers.
-            // A task in the set takes `defaultPermission`; a task NOT in the set is simply uncovered
-            // and falls to the safe baseline `Deny` — never the former `Deny`-default ⇒ `Allow`
-            // inversion (R3). This now agrees with the direct-row path's not-in-set ⇒ `Deny`.
-            RoleType.CrudTask -> if (appRole.defaultCrudTaskSet?.contains(crudTask) == true) {
-                appRole.defaultPermission
-            } else {
-                BaseRolePermission.Deny
-            }
+    private val mongoRbacGrantPort: IRbacGrantPort<UID> = object : IRbacGrantPort<UID> {
+
+        /** A root user short-circuits to allow; mirrors [rootUser] (`null`/`false` ⇒ not root). */
+        override suspend fun isRootUser(userId: UID): Boolean = rootUser(userId = userId) == true
+
+        /**
+         * The user's direct role grant for [appRoleId], or `null` when no direct row exists.
+         * Identical query to the former inline direct-row find, projected to [RoleGrant].
+         */
+        override suspend fun fetchDirectGrant(userId: UID, appRoleId: OId<out IAppRole<*>>): RoleGrant? {
+            val roleInUser: RIU? = coroutine.find(
+                filter = and(
+                    IRoleInUser<U, UID>::userId eq userId,
+                    IRoleInUser<U, UID>::appRoleId eq appRoleId
+                )
+            ).first()
+            return roleInUser?.let { RoleGrant(permission = it.permission, crudTaskSet = it.crudTaskSet) }
+        }
+
+        /**
+         * The grants contributed by the user's groups for [appRoleId], projected to [RoleGrant].
+         * The pipeline is the former `getGroupPermission` aggregation (match → `$lookup` on the matching
+         * app role → unwind → replaceRoot) **plus a `$project` to `{permission, crudTaskSet}`** so the
+         * `aggregate<RoleGrant>` decode is robust; the decode target is the typed [RoleGrant], which closes
+         * R6 by dropping the file-private decode classes.
+         */
+        override suspend fun fetchGroupGrants(userId: UID, appRoleId: OId<out IAppRole<*>>): List<RoleGrant> {
+            val pipeline = buildGroupGrantPipeline(userId = userId, appRoleId = appRoleId)
+            return userGroupColl.coroutine.aggregate<RoleGrant>(pipeline = pipeline).toList()
+        }
+
+        /** Cheap presence probe for a direct grant (Phase-4-ready; not consulted by the resolver). */
+        override suspend fun existsDirectGrant(userId: UID, appRoleId: OId<out IAppRole<*>>): Boolean =
+            coroutine.countDocuments(
+                and(
+                    IRoleInUser<U, UID>::userId eq userId,
+                    IRoleInUser<U, UID>::appRoleId eq appRoleId
+                )
+            ) > 0
+
+        /** Cheap presence probe for any group grant (Phase-4-ready; not consulted by the resolver). */
+        override suspend fun existsGroupGrant(userId: UID, appRoleId: OId<out IAppRole<*>>): Boolean {
+            val pipeline = buildGroupGrantPipeline(userId = userId, appRoleId = appRoleId)
+            pipeline += limit(1)
+            return userGroupColl.coroutine.aggregate<RoleGrant>(pipeline = pipeline).first() != null
         }
     }
 
     /**
-     * Retrieves the group-level permission for a specified user and application role.
+     * Builds the group-grant aggregation pipeline shared by the port's `fetchGroupGrants` and
+     * `existsGroupGrant`: it matches the user's group memberships, `$lookup`s the role-in-group rows for
+     * [appRoleId], unwinds, replaces the root with the role-in-group document, and `$project`s it to
+     * `{permission, crudTaskSet}` so it decodes into [RoleGrant]. This is the pipeline previously inlined
+     * in `getGroupPermission`, with the trailing `$project` added in P3.1a for a robust typed decode.
      *
-     * @param userSession The user whose group permissions are being checked.
-     * @param appRole The application role for which the group's permission is being determined.
-     * @param crudTask An optional CRUD task that further specifies the permission being checked. Defaults to null.
-     * @return The base role permission (Allow, Deny, or Default) for the user's group with respect to the specified application role and CRUD task.
+     * @param userId The user whose group memberships are consulted.
+     * @param appRoleId The app role being evaluated.
+     * @return A mutable pipeline (mutable so callers may append a `$limit`).
      */
-    private suspend fun getGroupPermission(
-        userSession: UserSession<*>,
-        appRole: IAppRole<out Any>,
-        crudTask: CrudTask? = null,
-    ): BaseRolePermission {
-        val userGroupColl = userGroupColl
+    private fun buildGroupGrantPipeline(userId: UID, appRoleId: OId<out IAppRole<*>>): MutableList<Bson> {
         val roleInGroupColl = this@IRoleInUserColl.roleInGroupColl
         val pipeline = mutableListOf<Bson>()
-        pipeline.add(0, match(IUserGroup<U, UID, *, *>::userId eq userSession.userId))
+        pipeline.add(0, match(IUserGroup<U, UID, *, *>::userId eq userId))
         pipeline += lookup5(
             from = roleInGroupColl.commonContainer.itemKClass.collectionName,
             localField = IUserGroup<U, UID, *, *>::groupOfUserId,
             foreignField = IRoleInGroup<*, GOU>::groupOfUserId,
             resultField = IUserGroup<U, UID, *, *>::roleInGroups,
             pipeline = listOf(
-                match(IRoleInGroup<*, GOU>::appRoleId eq appRole._id)
+                match(IRoleInGroup<*, GOU>::appRoleId eq appRoleId)
             )
         )
         pipeline += IUserGroup<U, UID, *, *>::roleInGroups.unwind(
@@ -322,53 +330,16 @@ abstract class IRoleInUserColl<RIU : IRoleInUser<U, UID>, U : IUser<UID>, UID : 
             )
         )
         pipeline += replaceRoot(IUserGroup<U, UID, *, *>::roleInGroups)
-        val groupRoleList = userGroupColl.coroutine.aggregate<RoleInGroup>(
-            pipeline = pipeline
-        ).toList()
-        val permissionTypes = when (appRole.roleType) {
-            RoleType.SingleAction -> groupRoleList
-            RoleType.CrudTask -> groupRoleList.filter { roleInGroup ->
-                crudTask?.let { roleInGroup.crudTaskSet?.contains(it) == true } != false
-            }
-        }
-        if (permissionTypes.isEmpty()) return buildDefaultAppRolePermission(appRole, crudTask)
-        // D2 (total conflict rule, applied uniformly to single- and multi-group sets): the default
-        // bias is deny-override (safe); `upVoteInGroup == Allow` is the explicit per-role allow-override
-        // opt-in. An explicit `Allow`/`Deny` group grant is NEVER discarded into the role default —
-        // the role default applies only when every applicable grant is `Default` (closes R4, satisfies
-        // T1). Previously a 2+-group set whose `upVote` bias was unmet fell through to the role default,
-        // so two `Deny` groups under an `Allow`-biased role could resolve to `Allow`.
-        val hasAllow = permissionTypes.any { it.permission == PermissionType.Allow }
-        val hasDeny = permissionTypes.any { it.permission == PermissionType.Deny }
-        return when (appRole.upVoteInGroup) {
-            BaseRolePermission.Allow -> when {           // allow-override (per-role opt-in)
-                hasAllow -> BaseRolePermission.Allow
-                hasDeny -> BaseRolePermission.Deny
-                else -> buildDefaultAppRolePermission(appRole, crudTask)
-            }
-
-            BaseRolePermission.Deny -> when {            // deny-override (the safe default)
-                hasDeny -> BaseRolePermission.Deny
-                hasAllow -> BaseRolePermission.Allow
-                else -> buildDefaultAppRolePermission(appRole, crudTask)
-            }
-        }
+        // Project to exactly RoleGrant's shape so the aggregate<RoleGrant> decode never depends on the
+        // decoder ignoring the role-in-group doc's other fields (_id/groupOfUserId/appRoleId).
+        pipeline += Aggregates.project(
+            Projections.fields(
+                Projections.include("permission", "crudTaskSet"),
+                Projections.excludeId(),
+            )
+        )
+        return pipeline
     }
 
     fun userSessionFromCall(call: ApplicationCall?): UserSession<UID>? = call?.sessions?.get<UserSession<UID>>()
 }
-
-@Serializable
-private data class GroupOfUser(
-    override val _id: OId<GroupOfUser>,
-    override val description: String,
-) : IGroupOfUser<GroupOfUser>
-
-@Serializable
-private data class RoleInGroup(
-    override val _id: OId<RoleInGroup>,
-    override val groupOfUserId: OId<GroupOfUser>,
-    override val appRoleId: OId<out IAppRole<*>>,
-    override val permission: PermissionType,
-    override val crudTaskSet: Set<CrudTask>?,
-) : IRoleInGroup<RoleInGroup, GroupOfUser>

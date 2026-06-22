@@ -21,26 +21,26 @@
 
 ## Layer C — Characterized current behavior (to be frozen by Phase 1)
 
-### C1 — Resolution order (Mongo)
+### C1 — Resolution order
 
-**Status: Characterized (current)** — root short-circuit and the overall direct→group→default order
-pinned by P1.1 (`RbacPermissionResolutionCharacterizationTest`, Testcontainers / CI; skip-clean
-locally). The `SingleAction`-vs-`CrudTask` duplication row and the full ordering matrix remain to add.
-For a `(userSession, appRole, crudTask?)` query, `IRoleInUserColl.permissionState` (`:184-248`)
-resolves in this order:
+**Status: Characterized (P1.1) + extracted to the shared algebra (P3.1a).** Pinned by P1.1
+(`RbacPermissionResolutionCharacterizationTest`, CI) and, since P3.1a, by the no-DB `RbacResolverTest`
+(13 cases). The Mongo entry point `IRoleInUserColl.permissionState` keeps the root short-circuit and the
+`appRoleBlock` AppRole resolution, then **delegates to the backend-agnostic `RbacResolver.resolve(...)`
+over the Mongo `IRbacGrantPort`**, wrapping the verdict with `buildSimpleState` (output unchanged). The
+resolution order (now in `RbacResolver`):
 
 ```
-1. rootUser(userId) == true            -> Allow            (:190)
-2. resolve appRole via appRoleBlock    (findOne ?: insert) (:191-196 — see C5)
-3. direct IRoleInUser(userId, appRoleId) row exists?
-      yes -> return its verdict, GROUPS NOT CONSULTED      (:197-226 — see C2)
-4. else -> getGroupPermission(...)                          (:227-247 — see C3)
-5. no group rows -> role default                            (see C4)
+1. port.isRootUser(userId)                 -> Allow
+2. (entry point) resolve appRole via appRoleBlock: findOne ?: deny  (no provisioning, D4/P2.3 — see C5)
+3. port.fetchDirectGrant(userId, appRoleId) != null?
+      yes -> its verdict; GROUPS NOT CONSULTED          (see C2 / D1)
+4. else -> port.fetchGroupGrants(...) resolved by the D2 tie-break   (see C3)
+5. no applicable grant -> role default                  (see C4 / D3)
 ```
 
-The `SingleAction` and `CrudTask` arms of the step-4 `when (roleType)` are **byte-identical** dead
-duplication (`:227-247`, R9) — the real role-type divergence happens inside `getGroupPermission` and
-`buildDefaultAppRolePermission`.
+The former byte-identical `when (roleType)` arms (R9) were collapsed (P2.5) and then extracted into
+`RbacResolver` — the real role-type divergence lives in `RbacResolver`'s group/default helpers.
 
 ### C2 — Direct user row short-circuits groups (including `Default`)
 
@@ -62,10 +62,12 @@ bias is **deny-override** and `upVote==Allow` is the per-role **allow-override**
 uniformly to single- and multi-group sets; the role default applies **only** when every grant is
 `Default` — an explicit `Allow`/`Deny` is never discarded. Pinned by `multiGroupDeniesAreHonoredNotDiscarded`
 (deny-override, red→green), `mixedGroupGrantsAllowWinUnderAllowOverride` (the `upVote==Allow` allow-override
-branch), and `singleGroupDenyResolvesToDeny` (uniform single-group rule), all in CI. The aggregation shape
-is unchanged: `getGroupPermission` matches `IUserGroup.userId == user` → `$lookup` `roleInGroupColl` on
-`groupOfUserId` where `appRoleId == appRole._id` → unwind → `replaceRoot` → `List<RoleInGroup>` (still
-decoded into the file-private fixed-shape class, R6 — untouched here, addressed by the P4.2 port).
+branch), and `singleGroupDenyResolvesToDeny` (uniform single-group rule), all in CI. Since P3.1a this
+group resolution lives behind `IRbacGrantPort.fetchGroupGrants` (the same `match` → `$lookup` on
+`roleInGroupColl` where `appRoleId == appRole._id` → unwind → `replaceRoot` pipeline) — now with a
+`$project` to `{permission, crudTaskSet}` decoding into the typed **`RoleGrant`**; the file-private
+`RoleInGroup`/`GroupOfUser` decode classes are deleted (**R6 closed by P3.1a**, not P4.2). The D2
+tie-break itself now lives in `RbacResolver`.
 
 Pre-fix table (historical):
 
@@ -136,11 +138,13 @@ moves to the shared layer (P3.1).
 
 ### T2 — One resolution algebra, specified once, asserted everywhere
 
-**Status: Target (decided D5; pending P3.1 pin).** The decision tree (precedence, conflict rule,
-`crudTaskSet` semantics, single-action vs CRUD) is specified **once, engine-agnostically**, with each
-engine supplying only a thin typed grant-fetch port. The same conformance assertions run against every
-engine that claims to enforce. No engine carries a private copy of the policy (closes R1, R6, the
-C1/C2/C3/C4 Mongo-locality).
+**Status: Partially enforced (P3.1a) — pending cross-engine pin (P3.1b).** The decision tree
+(precedence, conflict rule, `crudTaskSet` semantics, single-action vs CRUD) is now specified **once,
+engine-agnostically** in `RbacResolver` over the `IRbacGrantPort`, and pinned by 13 no-DB
+`RbacResolverTest` unit tests. Mongo delegates to it (its `$lookup` is one port impl; closes R6, the
+Mongo private-decode locality). **Remaining:** InMemory port impl + the cross-engine conformance pin
+(same resolver assertions per engine) land in P3.1b; SQL native RBAC + explicit registration (R10) stay
+deferred (P3.2 / a separate SQL sub-blueprint).
 
 ### T3 — Permission resolution is side-effect-free
 
