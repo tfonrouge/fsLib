@@ -55,6 +55,22 @@
 | **D8** | — | **The two operations' semantics — and the D1-consistency constraint.** **(1) `hasSingleActionGrant`** = **pure existence union**: ∃ *any* grant edge (direct OR group), ignoring `permission`/defaults/`upVote`. Commutative; resolves no verdict, so D1 precedence is N/A. Matches the consumer's raw `countDocuments`. **(2) `isAllowedSingleAction`** = **effective authz = the D1/T5 precedence resolution restricted to SingleAction**: a direct grant is **authoritative** (resolve it: `Allow`/`Deny`/`Default`→default); groups are consulted **only when there is no direct row**, then by the D2 intra-group rule. It is the **same semantics as `permissionState`** (SAME engine, T2), merely re-keyed and returning a `Boolean` — **NOT** a flat deny-override union. So a direct `Allow` + group `Deny` is **`Allow`** under both `permissionState` and `isAllowedSingleAction` (consistent with T5). | **APPROVED — LOCKED 2026-06-22 (as stated); shipped P4** (`isAllowedSingleAction` **is** `RbacResolver.resolve(crudTask=null)`, pinned by `directAllowWithGroupDenyIsAllowedByPrecedenceNotUnion`) | **Corrects a prior contradiction:** an earlier draft made `isAllowedSingleAction` a deny-override union, which would have flipped a direct `Allow`+group `Deny` to `Deny` — a *second*, conflicting authorization semantic versus the locked D1/T5. Effective authz MUST equal the precedence resolution. Pure existence stays a separate, clearly-named helper that never claims to be an authz decision. | A genuine requirement for a **hard-deny layer that overrides even direct grants** — that would be a *new, explicit* layer above D1 (e.g. an org/group-level lockout), recorded as its own decision and a T5/D1 amendment, **not** smuggled into `isAllowedSingleAction`. |
 | **D9** | — | **Query shape & port (both ops).** Key by `(userId/User, appRoleId)` directly (not `classOwner`/`funcName` — R12); **no materialization of grant docs** — project only the needed fields (`countDocuments`/`limit(1)`/`$exists` for existence; a typed `{permission, crudTaskSet}` projection for authz), **never** `.first()` on the full `RoleInUser` doc (R13); **no `AppRole` provisioning** (D4). `hasSingleActionGrant` reads no `AppRole`; `isAllowedSingleAction` reads the `AppRole` by `_id` only for `defaultPermission`/`defaultCrudTaskSet`/`upVoteInGroup`. Both sit over the **D5=c typed grant-fetch port** (a `Boolean`-only port can implement existence but **cannot** carry the permission/defaults/upVote that authz needs — so the port returns typed grant summaries, with a boolean/count fast path for existence). | **APPROVED — LOCKED 2026-06-22 (as stated); shipped P4.** Port gained the **required** `fetchAppRolePolicy` (no fail-closed `=null` default — consistent with the port's other 5 required methods and safe since the port is unreleased; a default would let an implementer silently deny-all authz by omission, the wrong posture for a security port). Mongo existence = `countDocuments`/`limit(1)`; **`fetchDirectGrant` now projects `{permission, crudTaskSet}` server-side** (`match → $limit(1) → $project`), so "never `.first()` on the full `RoleInUser` doc" holds for **both** ops (and the shared `permissionState` path); authz reads `AppRole` by `_id` only. | Answers the three bypass reasons (userId/appRoleId keying, non-materialization that can't crash on a bad `_id`, no side-effecting write) **and** keeps the port rich enough for effective authz (a flat boolean port would paint the authz path into a corner). | A need to key by `classOwner`/`funcName` — then add a by-name overload that resolves `appRoleId` once, still without materializing grant rows. |
 
+## D10 — Explicit RBAC registration mechanism (R10; **LOCKED 2026-06-22**, design checkpoint; implementation P3.2a)
+
+> Motivated by R10/R1: provider registration is a **construction side effect** on a **global mutable**.
+> Building any concrete `IRoleInUserColl` (it extends `Coll`) silently mutates **two** process globals in
+> `Coll.init` (`Coll.kt:1740-1744`, gated `if (this is IRoleInUserColl)`):
+> `PermissionRegistry.rolePermissionProvider` (read by SQL + InMemory + the conformance harness) **and**
+> the `Coll.roleInUserColl` companion static (read by Mongo's own `CollPermission`). Last-writer-wins,
+> order-dependent, unscoped, and untestable from the harness (the split-brain behind Mongo's
+> `enforcesPermissions=false`, [[repository-write-lifecycle]] D11). The newer **port world**
+> (`RbacResolver`/`IRbacGrantPort`/`RbacMembership`, P3.1/P4) is already explicit — only the CrudTask
+> provider world is global.
+
+| ID | Date | Decision (question + options) | Type | Rationale | Falsification (if recommendation approved) |
+|----|------|-------------------------------|------|-----------|--------------------------------------------|
+| **D10** | 2026-06-22 | **What replaces the construction-side-effect + global-mutable registration?** **(a) explicit boot registrar** — the app calls a register/install function at boot (mirrors D4 `ensureRoles()`); keeps a holder but removes the side-effect and makes timing + ownership explicit. **(b) constructor injection** — each consuming repo receives the provider/port as a ctor param (purest DI, no global) but high blast radius (every `SqlRepository`/`InMemoryRepository` subclass) and the shared Mongo-built provider isn't known at repo construction. **(c) per-call context** — thread a resolver/context through `getCrudPermission` (no global, but heavy, and changes every call site + the `IRepository` signature). | **APPROVED — LOCKED 2026-06-22 (option a)** via design checkpoint; **(b)/(c) REJECTED** (see Refuted). Implementation **P3.2a** (registration mechanism only; Mongo path-unification → P3.2b, single-action/group surface-widening → P3.2c). | (a) is the lowest-friction BREAKING migration — one boot call replaces an invisible side-effect — and matches the already-accepted D4 boot-registration pattern. It removes the side-effect, ordering hazard, and last-writer-wins surprise (the substance of R10) without the blast radius of (b) or the call-site churn of (c). The holder remains but is **deliberately, explicitly** populated — the same posture as `ensureRoles()`. | Evidence that a single process legitimately needs **multiple concurrently-active RBAC providers** (per-tenant / per-database) that one boot-time registration slot cannot express → escalate to a **scoped registry** keyed by database/tenant (still explicit, still no construction side-effect), recorded as a D10 amendment. |
+
 ## Refuted / non-decisions (kept to prevent rejection amnesia)
 
 - **`hasSingleActionGrant` (pure existence) ≠ `isAllowedSingleAction` (effective authz).** Two distinct
@@ -75,4 +91,21 @@
   propose deleting the field without a D2 outcome that removes per-role bias entirely.
 - **Mongo's `enforcesPermissions=false` in the existing conformance profile is not a Mongo bug.** It
   reflects that the harness drives `PermissionRegistry`, not `Coll.roleInUserColl` (the real engine)
-  — [[repository-write-lifecycle]] D11. D5's resolution port is what lets the suite finally reach it.
+  — [[repository-write-lifecycle]] D11. D5's resolution port is what lets the suite finally reach it;
+  collapsing the split-brain so the harness drives the live Mongo path (and flipping this flag to `true`)
+  is **P3.2b**, deferred — **not** part of the P3.2a registration-mechanism slice.
+
+- **Registration is NOT constructor injection (D10 option b), REJECTED.** Threading the RBAC
+  provider/port through every `SqlRepository`/`InMemoryRepository` constructor is the purest "no global"
+  shape but has high blast radius and a chicken-and-egg flaw: the shared Mongo-built provider usually
+  isn't known when an individual business repo is constructed. Do not re-propose DI as "cleaner" without
+  a concrete answer to who supplies the provider at each repo's construction site.
+
+- **Registration is NOT a per-call context object (D10 option c), REJECTED.** Passing a resolver/context
+  into every `getCrudPermission` call removes the global but churns every call site and widens the
+  `IRepository` signature for a value that is process-stable. Rejected on ergonomics, not correctness.
+
+- **D10 is the mechanism, not the surface.** D10 locks *how* registration happens (explicit boot
+  registrar). It does **not** widen the agnostic surface to single-action/group (that is P3.2c) nor
+  unify the two dispatch paths (P3.2b). P3.2a keeps the existing CrudTask `IRolePermissionProvider`
+  surface and both dispatch paths unchanged — it only replaces *how the holders are populated*.
