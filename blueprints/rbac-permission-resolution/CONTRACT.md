@@ -138,13 +138,14 @@ moves to the shared layer (P3.1).
 
 ### T2 — One resolution algebra, specified once, asserted everywhere
 
-**Status: Partially enforced (P3.1a) — pending cross-engine pin (P3.1b).** The decision tree
-(precedence, conflict rule, `crudTaskSet` semantics, single-action vs CRUD) is now specified **once,
-engine-agnostically** in `RbacResolver` over the `IRbacGrantPort`, and pinned by 13 no-DB
-`RbacResolverTest` unit tests. Mongo delegates to it (its `$lookup` is one port impl; closes R6, the
-Mongo private-decode locality). **Remaining:** InMemory port impl + the cross-engine conformance pin
-(same resolver assertions per engine) land in P3.1b; SQL native RBAC + explicit registration (R10) stay
-deferred (P3.2 / a separate SQL sub-blueprint).
+**Status: Pinned over two real ports (P3.1a/P3.1b) — broader cross-engine integration pending.** The
+decision tree (precedence, conflict rule, `crudTaskSet` semantics, single-action vs CRUD) is specified
+**once, engine-agnostically** in `RbacResolver` over the `IRbacGrantPort`, and pinned by the same
+verdicts over **two real ports**: Mongo (`mongoRbacGrantPort`, delegated from `permissionState`, CI) and
+InMemory (`InMemoryRbacGrantPort`, local — a real port, **not yet wired** into
+`InMemoryRepository`/`PermissionRegistry`) — plus 13 no-DB `RbacResolverTest` unit tests. No engine carries a
+private copy of the policy (closes R6; the Mongo private-decode locality is gone). **Remaining:** native
+SQL RBAC port (a separate sub-blueprint) and explicit registration (R10 → P3.2).
 
 ### T3 — Permission resolution is side-effect-free
 
