@@ -229,27 +229,18 @@ abstract class IRoleInUserColl<RIU : IRoleInUser<U, UID>, U : IUser<UID>, UID : 
                 )
             }
         }
-        return when (roleType) {
-            RoleType.SingleAction -> buildSimpleState(
-                baseRolePermission = getGroupPermission(
-                    userSession = userSession,
-                    appRole = appRole,
-                    crudTask = crudTask
-                ),
+        // No direct row → group resolution. Both role types resolve identically here (R9): the
+        // SingleAction-vs-CrudTask divergence lives inside getGroupPermission / buildDefaultAppRolePermission,
+        // not at this dispatch — so the former byte-identical `when (roleType)` arms are collapsed.
+        return buildSimpleState(
+            baseRolePermission = getGroupPermission(
+                userSession = userSession,
                 appRole = appRole,
                 crudTask = crudTask
-            )
-
-            RoleType.CrudTask -> buildSimpleState(
-                baseRolePermission = getGroupPermission(
-                    userSession = userSession,
-                    appRole = appRole,
-                    crudTask = crudTask
-                ),
-                appRole = appRole,
-                crudTask = crudTask
-            )
-        }
+            ),
+            appRole = appRole,
+            crudTask = crudTask
+        )
     }
 
     /**
