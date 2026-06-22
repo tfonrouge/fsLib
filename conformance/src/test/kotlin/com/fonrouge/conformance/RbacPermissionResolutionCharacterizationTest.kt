@@ -3,6 +3,7 @@ package com.fonrouge.conformance
 import com.fonrouge.base.api.ApiFilter
 import com.fonrouge.base.api.CrudTask
 import com.fonrouge.base.api.IApiFilter
+import com.fonrouge.base.common.ICommonContainer
 import com.fonrouge.base.common.simpleContainer
 import com.fonrouge.base.model.IAppRole
 import com.fonrouge.base.model.IAppRole.BaseRolePermission
@@ -209,16 +210,48 @@ class RbacPermissionResolutionCharacterizationTest {
         )
     }
 
+    // ---- C5 / D4 — lazy provisioning hook on the check path (R5) ----
+
+    /**
+     * C5/R5 — **P1.2 characterization (the red baseline for D4).** A permission check on a **missing**
+     * SingleAction role **invokes the lazy provisioning hook** (`insertSingleActionRole`) on the check
+     * path. The in-tree hook is an inert stub (no DB write), so the role still "doesn't exist" and the
+     * check denies — but the hook *is* invoked. P2.3 (D4) removes the lazy call; this test then flips to
+     * assert the hook is **not** invoked (while still denying) — a genuine red→green.
+     */
+    @Test
+    fun missingSingleActionRoleInvokesProvisioningHook() = runTest {
+        val f = RbacFixture()
+        // No AppRole seeded for ("Demo","act") → the check hits the lazy `findOne ?: insert` site.
+        val state = f.resolveSingleAction(classOwner = "Demo", funcName = "act")
+
+        assertTrue(
+            f.appRoleColl.singleActionInsertInvoked,
+            "P1.2: a check on a missing SingleAction role invokes the lazy provisioning hook",
+        )
+        assertTrue(
+            state.hasError,
+            "the unprovisioned role denies (the inert stub yields no role)",
+        )
+    }
+
     // ---- fixture ----
 
     /** Builds a fresh, wired RBAC collection set sharing one Testcontainers database. */
     private class RbacFixture {
         private val builder = MongoTestSupport.freshBuilder()
         val userId = OId<TUser>()
-        private val appRoleColl = TAppRoleColl(builder)
+        val appRoleColl = TAppRoleColl(builder)
         private val roleInGroupColl = TRoleInGroupColl(builder)
         private val userGroupColl = TUserGroupColl(builder)
         val groupOfUserColl = TGroupOfUserColl(builder)
+
+        private val session = UserSession(
+            userId = userId,
+            inactivityUiSecsToNoRefresh = null,
+            inactivityUiSecsToLogout = null,
+            sessionMaxSecs = null,
+        )
 
         private fun riuColl(asRoot: Boolean) = TRoleInUserColl(
             builder = builder,
@@ -254,14 +287,21 @@ class RbacPermissionResolutionCharacterizationTest {
         suspend fun resolveCrud(appRole: TAppRole, task: CrudTask, asRoot: Boolean = false) =
             riuColl(asRoot).permissionState(
                 roleType = RoleType.CrudTask,
-                userSession = UserSession(
-                    userId = userId,
-                    inactivityUiSecsToNoRefresh = null,
-                    inactivityUiSecsToLogout = null,
-                    sessionMaxSecs = null,
-                ),
+                userSession = session,
                 crudTask = task,
             ) { ItemState(item = appRole) }
+
+        /**
+         * Resolves a SingleAction permission via the public `getSingleActionPermission` entry — the path
+         * that exercises the lazy `findOne ?: insertSingleActionRole` provisioning site (A) when the role
+         * is missing. Does not seed an `AppRole`, so the lazy hook is reached.
+         */
+        suspend fun resolveSingleAction(classOwner: String, funcName: String) =
+            riuColl(asRoot = false).getSingleActionPermission(
+                userSession = session,
+                classOwner = classOwner,
+                funcName = funcName,
+            )
     }
 
     private companion object {
@@ -345,10 +385,31 @@ private data class TUserGroup(
 
 // ---- Minimal concrete RBAC collections (per-instance builder, shared DB) ----
 
-/** App-role collection for characterization; auto-create insert hooks stay defaulted (unused here). */
+/**
+ * App-role collection for characterization, instrumented with **provisioning-hook invocation probes**.
+ * `insertSingleActionRole`/`insertCrudRole` record whether the lazy provisioning hook was called (the
+ * in-tree defaults are inert stubs returning `isOk=false`, so they perform no write — the probe captures
+ * *invocation*, not a DB write). Used to prove P1.2 (a check on a missing role invokes the hook) and,
+ * after P2.3, that it no longer does.
+ */
 private class TAppRoleColl(builder: MongoDbBuilder) :
     IAppRoleColl<TAppRole, OId<TAppRole>, ApiFilter, OId<TUser>>(simpleContainer<TAppRole, OId<TAppRole>>(), builder) {
     override val userCollFun: () -> IUserColl<*, OId<TUser>, *>? = { null }
+
+    var singleActionInsertInvoked = false
+        private set
+    var crudInsertInvoked = false
+        private set
+
+    override suspend fun insertSingleActionRole(classOwner: String, funcName: String): ItemState<TAppRole> {
+        singleActionInsertInvoked = true
+        return super.insertSingleActionRole(classOwner, funcName)
+    }
+
+    override suspend fun insertCrudRole(container: ICommonContainer<*, *, *>, crudTask: CrudTask): ItemState<TAppRole> {
+        crudInsertInvoked = true
+        return super.insertCrudRole(container, crudTask)
+    }
 }
 
 /** Group collection for characterization. */
