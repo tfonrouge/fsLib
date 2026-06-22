@@ -441,7 +441,11 @@ abstract class SqlRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UI
         call: ApplicationCall,
         crudTask: CrudTask,
     ): SimpleState {
-        val provider = PermissionRegistry.rolePermissionProvider ?: return SimpleState(isOk = true)
+        // D6: an explicitly non-enforcing repository always allows.
+        if (permissionEnforcement == PermissionEnforcement.Off) return SimpleState(isOk = true)
+        // D6: enforcing, but no resolver wired → fail CLOSED (was: `?: SimpleState(isOk = true)`, fail-open R7).
+        val provider = PermissionRegistry.rolePermissionProvider
+            ?: return SimpleState(isOk = false, msgError = "Permission enforcement is on but no permission provider is registered")
         return provider.getCrudPermission(commonContainer, call, crudTask)
     }
 

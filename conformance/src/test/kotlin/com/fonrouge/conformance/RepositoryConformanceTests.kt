@@ -120,6 +120,36 @@ abstract class RepositoryConformanceTests {
         }
     }
 
+    // ── D6: fail-closed default when enforcement is unconfigured (permissionEnforcement) ──
+
+    /**
+     * D6: with **no** permission provider registered, an *enforcing* engine (`permissionEnforcement ==
+     * Enforce`) must **fail closed** on a remote (`call != null`) write — closing the former fail-open
+     * hole (R7) where an unconfigured registry silently allowed. An explicitly `Off` engine still allows.
+     * The `enforcesPermissions` profile flag marks the engines whose enforcement the harness can drive
+     * (SQL today): those are `Enforce`; the others are declared `Off`.
+     */
+    @Test
+    fun unconfiguredDefaultFailsClosedForEnforcingEngines() = runTest {
+        val name = fixture.profile.name
+        val repo = fixture.freshRepo()
+        val remoteCall = mockk<ApplicationCall>(relaxed = true)
+        val previousProvider = PermissionRegistry.rolePermissionProvider
+        try {
+            PermissionRegistry.rolePermissionProvider = null // unconfigured
+
+            val remote = repo.apiItemProcess(remoteCall, actionCreate(CItem("d6", "X", 1.0)))
+            if (fixture.profile.enforcesPermissions) {
+                assertTrue(remote.hasError, "$name: an enforcing engine with no provider must fail closed on a remote write")
+                assertNull(repo.findById("d6", ApiFilter()), "$name: a fail-closed write must not persist")
+            } else {
+                assertFalse(remote.hasError, "$name: an explicitly Off engine allows when unconfigured")
+            }
+        } finally {
+            PermissionRegistry.rolePermissionProvider = previousProvider
+        }
+    }
+
     // ── I4: init lifecycle (profile-gated per engine) ──
 
     @Test

@@ -2,6 +2,7 @@ package com.fonrouge.conformance
 
 import com.fonrouge.base.api.ApiFilter
 import com.fonrouge.base.api.ApiItem
+import com.fonrouge.base.api.PermissionEnforcement
 import com.fonrouge.base.state.ItemState
 import com.fonrouge.base.state.SimpleState
 import com.fonrouge.fullStack.mongoDb.Coll
@@ -60,16 +61,18 @@ object MongoTestSupport {
     )
 }
 
-/** Plain [Coll] for [CItem], backed by the Testcontainers Mongo. */
+/** Plain [Coll] for [CItem], backed by the Testcontainers Mongo. Non-RBAC test repo → declares [PermissionEnforcement.Off] (D6). */
 open class CItemMongoRepository(mongoDbBuilder: MongoDbBuilder) :
     Coll<CItem, String, ApiFilter, String>(CommonCItem, mongoDbBuilder) {
     override val userCollFun: () -> IUserColl<*, String, *>? = { null }
+    override val permissionEnforcement: PermissionEnforcement get() = PermissionEnforcement.Off
 }
 
-/** Plain [Coll] for [CChild] (the dependent entity in I3 tests). */
+/** Plain [Coll] for [CChild] (the dependent entity in I3 tests). Non-RBAC test repo → [PermissionEnforcement.Off] (D6). */
 open class CChildMongoRepository(mongoDbBuilder: MongoDbBuilder) :
     Coll<CChild, String, ApiFilter, String>(CommonCChild, mongoDbBuilder) {
     override val userCollFun: () -> IUserColl<*, String, *>? = { null }
+    override val permissionEnforcement: PermissionEnforcement get() = PermissionEnforcement.Off
 }
 
 private class GateClosedMongoRepository(mongoDbBuilder: MongoDbBuilder) : CItemMongoRepository(mongoDbBuilder) {

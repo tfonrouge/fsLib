@@ -3,6 +3,7 @@ package com.fonrouge.fullStack.mongoDb
 import com.fonrouge.base.api.ApiItem
 import com.fonrouge.base.api.CrudTask
 import com.fonrouge.base.api.IApiFilter
+import com.fonrouge.base.api.PermissionEnforcement
 import com.fonrouge.base.model.BaseDoc
 import com.fonrouge.base.model.IAppRole
 import com.fonrouge.base.model.IAppRole.RoleType
@@ -35,8 +36,13 @@ internal suspend fun <T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any
     call: ApplicationCall,
     crudTask: CrudTask,
 ): SimpleState {
-    val roleInUserColl = Coll.roleInUserColl ?: return SimpleState(isOk = true)
+    // D6: an explicitly non-enforcing repository always allows.
+    if (permissionEnforcement == PermissionEnforcement.Off) return SimpleState(isOk = true)
+    // Change-log collections are exempt from RBAC.
     if (this::class.isSubclassOf(IChangeLogColl::class)) return SimpleState(isOk = true)
+    // D6: enforcing, but RBAC not wired (no roleInUserColl) → fail CLOSED (was: `?: SimpleState(isOk = true)`, fail-open R7).
+    val roleInUserColl = Coll.roleInUserColl
+        ?: return SimpleState(isOk = false, msgError = "Permission enforcement is on but RBAC (roleInUserColl) is not wired")
     val matchDoc = and(
         IAppRole<*>::roleType eq RoleType.CrudTask,
         IAppRole<*>::classOwner eq commonContainer.name

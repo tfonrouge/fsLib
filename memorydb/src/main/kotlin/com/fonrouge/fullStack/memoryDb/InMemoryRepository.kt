@@ -11,6 +11,7 @@ import com.fonrouge.fullStack.repository.ConstructorCopier
 import com.fonrouge.fullStack.repository.IChangeLogRepository
 import com.fonrouge.fullStack.repository.IRepository
 import com.fonrouge.fullStack.repository.IUserRepository
+import com.fonrouge.fullStack.repository.PermissionRegistry
 import io.ktor.server.application.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -335,6 +336,12 @@ open class InMemoryRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, U
                 // CONTRACT.md I5: gate the generic/remote write tier only; the low-level service-tier
                 // methods bypass this. Reads (Query) are never gated.
                 allowApiCrud(apiItem).also { if (it.hasError) return it.asItemState() }
+                // D6: per-action permission on the remote path (call != null); call == null is the trusted
+                // service tier (no-op). With the engine's default Off this returns OK, but the path now
+                // exists so the declaration is real (parity with SQL/Mongo).
+                apiItem.call?.let {
+                    getCrudPermission(it, apiItem.crudTask).also { state -> if (state.hasError) return state.asItemState() }
+                }
                 when (apiItem) {
                     is ApiItem.Action.Create -> insertOne(apiItem)
                     is ApiItem.Action.Update -> updateOne(apiItem)
@@ -404,12 +411,26 @@ open class InMemoryRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, U
         apiFilter: FILT,
     ): T? = store.values.firstOrNull()
 
-    // ── Permissions (always OK) ──────────────────────────────
+    // ── Permissions ──────────────────────────────────────────
+
+    /**
+     * The in-memory engine is a **deliberately non-enforcing** engine (samples/tests) — D6. It declares
+     * [PermissionEnforcement.Off] so its CRUD checks always allow; a concrete subclass may override back
+     * to [PermissionEnforcement.Enforce] if it wires a permission provider.
+     */
+    override val permissionEnforcement: PermissionEnforcement get() = PermissionEnforcement.Off
 
     override suspend fun getCrudPermission(
         call: ApplicationCall,
         crudTask: CrudTask,
-    ): SimpleState = SimpleState(state = State.Ok)
+    ): SimpleState {
+        // D6: an explicitly non-enforcing repository always allows (the default for this engine).
+        if (permissionEnforcement == PermissionEnforcement.Off) return SimpleState(state = State.Ok)
+        // Enforcing, but no resolver wired → fail CLOSED.
+        val provider = PermissionRegistry.rolePermissionProvider
+            ?: return SimpleState(isOk = false, msgError = "Permission enforcement is on but no permission provider is registered")
+        return provider.getCrudPermission(commonContainer, call, crudTask)
+    }
 
     // ── Existence Check ──────────────────────────────────────
 

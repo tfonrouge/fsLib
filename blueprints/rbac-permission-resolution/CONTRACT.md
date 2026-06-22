@@ -100,22 +100,22 @@ role denies, and the provisioning hook is **not** invoked; roles are provisioned
 
 ### C6 — Backend reach and fail-open default
 
-**Status: Characterized (current)** — **not yet pinned**; the landed P1.1 covers only the Mongo
-resolution algebra (C1–C4). The cross-engine reach + fail-open table below is documented from the
-audit (R1/R7 upheld) and is pinned later by the cross-engine conformance profile (P1.3). Native
-group/single-action resolution exists **only** in Mongo. Cross-engine reach (verified, R1/R7 upheld):
+**Fail-open half: Superseded by P2.4 (D6) — fixed.** **Reach half: Characterized (current); pending
+D5/P3.1.** The table below documented the pre-fix **fail-open** default (allow-all when no resolver was
+wired) at all three engines plus the still-Mongo-only resolution reach (R1).
 
-| Engine | Resolves groups? | No provider registered | Mongo coll booted in-process |
+| Engine | Resolves groups? | No provider registered — *pre-fix* | Mongo coll booted in-process |
 |---|---|---|---|
-| Mongo | Yes (native) | **allow-all** (`CollPermission.kt:38`, `roleInUserColl == null`) | full user→group→`upVote` |
-| SQL | Only via the borrowed Mongo provider | **allow-all** (`SqlRepository.kt:444`) | group-aware via Mongo's docs |
-| InMemory | Never (ignores registry) | **allow-all** (`InMemoryRepository.kt:412`) | **still allow-all**; Action path never calls the check |
+| Mongo | Yes (native) | ~~allow-all (`CollPermission.kt:38`)~~ → **D6 fail-closed (or `Off`)** | full user→group→`upVote` |
+| SQL | Only via the borrowed Mongo provider | ~~allow-all (`SqlRepository.kt:444`)~~ → **D6 fail-closed (or `Off`)** | group-aware via Mongo's docs |
+| InMemory | Never (ignores registry) | ~~allow-all~~ → declares **`Off`** (named non-enforcing engine); Action path now calls the check | non-enforcing |
 | SSR | Delegates to backing repo (`SsrAuth.kt:35`) | follows backing engine | follows backing engine |
 
-The agnostic `IRolePermissionProvider` exposes only `getCrudPermission` — no group, no single-action.
-**Changed by D5 (reach, locked) and D6 (fail-open, locked).** D6 gates **all three** fail-open cells
-above — SQL `:444`, InMemory `:412`, and **Mongo `CollPermission.kt:38`** — with the new
-`permissionEnforcement` declaration (default `Enforce` ⇒ deny when no resolver is wired; `Off` ⇒ allow).
+**Current behavior (P2.4):** the `permissionEnforcement` declaration (default `Enforce`) gates all three
+sites — an enforcing engine with no resolver **fails closed** on a remote write; `Off` opts out. Pinned
+by `unconfiguredDefaultFailsClosedForEnforcingEngines` (SQL fail-closed + Memory-allows green; Mongo in
+CI). The **reach** half (group/single-action resolution being Mongo-only; the agnostic provider exposing
+only `getCrudPermission`) is unchanged and still tracked by D5/P3.1.
 
 ---
 
@@ -154,13 +154,14 @@ modeled event"). Pinned on Mongo by the P1.2→P2.3 hook-invocation red→green 
 
 ### T4 — Safe default: fail closed or declare non-enforcement (`permissionEnforcement`)
 
-**Status: Target (decided D6; pending P2.4 pin).** An engine/deployment that cannot resolve permissions
-either **fails closed** on protected paths or **explicitly declares** non-enforcement via the
-`permissionEnforcement` member (default `Enforce`; `Off` opts out) — so the app cannot mistake allow-all
-for "checked and allowed". The declaration gates **all three** fail-open sites (SQL `:444`, InMemory
-`:412`, Mongo `CollPermission.kt:38`). Silent allow-all on a path the application believes is protected
-is forbidden (closes R7). The samples/tests "permission-free" mode remains valid only as an
-*explicit* declaration, matching the conformance harness's `enforcesPermissions=false` profile.
+**Status: Enforced (P2.4, D6).** An engine/deployment that cannot resolve permissions either **fails
+closed** on protected paths or **explicitly declares** non-enforcement via the `permissionEnforcement`
+member (default `Enforce`; `Off` opts out) — so the app cannot mistake allow-all for "checked and
+allowed". The declaration gates **all three** former fail-open sites (SQL `getCrudPermission`, InMemory
+`getCrudPermission` + Action branch, Mongo `CollPermission`). Silent allow-all on a protected path is
+forbidden (closes R7). The samples/tests "permission-free" mode is now an *explicit* declaration
+(`InMemoryRepository` declares `Off`; the conformance Mongo repos declare `Off`). Pinned by
+`unconfiguredDefaultFailsClosedForEnforcingEngines` (SQL fail-closed + Memory-allows green; Mongo in CI).
 
 ### T5 — Direct user grant outweighs group grants (LOCKED — D1)
 

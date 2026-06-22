@@ -203,6 +203,18 @@ interface IRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any
     // ── Permissions ───────────────────────────────────────────
 
     /**
+     * This repository's permission posture (RBAC blueprint D6). The default is
+     * [PermissionEnforcement.Enforce] — when no permission resolver is configured, a remote
+     * (`call != null`) write **fails closed** rather than silently allowing. Override with
+     * [PermissionEnforcement.Off] to declare an explicitly non-enforcing repository/engine (e.g.
+     * in-memory for samples/tests, or a deployment whose authorization lives above this layer).
+     *
+     * It is read at the engines' permission-check sites; it does **not** decide *who* resolves the
+     * verdict, only whether a check is required when no resolver is wired.
+     */
+    val permissionEnforcement: PermissionEnforcement get() = PermissionEnforcement.Enforce
+
+    /**
      * Checks whether the current user has permission for the specified CRUD task.
      *
      * @param call The Ktor request context containing session/user information.
