@@ -9,9 +9,9 @@ import io.ktor.server.application.*
  * Backend-agnostic interface for role-based CRUD permission checking.
  *
  * This abstraction decouples the permission system from any specific database engine.
- * The MongoDB module registers its implementation (backed by `IRoleInUserColl`) at startup;
- * other engines (e.g., SQL) consume it through [PermissionRegistry] without importing
- * MongoDB-specific types.
+ * The MongoDB module registers its implementation (backed by `IRoleInUserColl`) at boot via the explicit
+ * `MongoRbac.register` registrar; other engines (e.g., SQL) consume it through [PermissionRegistry] without
+ * importing MongoDB-specific types.
  */
 interface IRolePermissionProvider {
 
@@ -34,9 +34,10 @@ interface IRolePermissionProvider {
 /**
  * Global registry for the role-based permission provider.
  *
- * The MongoDB module registers its [IRolePermissionProvider] implementation here
- * during initialization. Other repository implementations (e.g., [SqlRepository])
- * query this registry to check CRUD permissions without depending on MongoDB types.
+ * The MongoDB module registers its [IRolePermissionProvider] implementation here via an **explicit boot
+ * call** (the MongoDB module's `MongoRbac.register`) — no longer a side effect of constructing a collection
+ * (RBAC blueprint D10 / P3.2a). Other repository implementations (e.g., [SqlRepository]) query this registry
+ * to check CRUD permissions without depending on MongoDB types.
  *
  * When no provider is registered, the outcome is **not** unconditionally "allowed": each repository's
  * `permissionEnforcement` (RBAC blueprint D6, since P2.4) decides. An enforcing repository

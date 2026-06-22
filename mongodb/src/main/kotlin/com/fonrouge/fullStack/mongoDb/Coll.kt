@@ -12,7 +12,6 @@ import com.fonrouge.fullStack.FieldPath
 import com.fonrouge.fullStack.repository.ConstructorCopier
 import com.fonrouge.fullStack.repository.IRepository
 import com.fonrouge.fullStack.repository.IRepository.Dependency
-import com.fonrouge.fullStack.repository.PermissionRegistry
 import com.mongodb.MongoCommandException
 import com.mongodb.MongoSocketException
 import com.mongodb.MongoTimeoutException
@@ -68,6 +67,11 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
     private var debug: Boolean = false,
 ) : IRepository<T, ID, FILT, UID> {
     companion object {
+        /**
+         * The RBAC role-in-user collection Mongo's own permission path (`CollPermission`) resolves through.
+         * Wired **explicitly** at boot by [MongoRbac.register] (RBAC D10 / P3.2a) — no longer a side effect
+         * of constructing a collection. `null` until registered ⇒ enforcing checks fail closed (D6).
+         */
         internal var roleInUserColl: IRoleInUserColl<*, *, *, *, *, *>? = null
         var MAX_RECURSIVE_RESULT_FIELD = 1
 
@@ -1736,11 +1740,4 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
     override suspend fun findOne(
         apiFilter: FILT,
     ): T? = findOne(filter = null, apiFilter = apiFilter, lookupWrappers = emptyList())
-
-    init {
-        if (this is IRoleInUserColl<*, *, *, *, *, *>) {
-            roleInUserColl = this
-            PermissionRegistry.rolePermissionProvider = MongoRolePermissionProvider(this)
-        }
-    }
 }

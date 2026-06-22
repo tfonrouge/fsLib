@@ -24,6 +24,7 @@ import com.fonrouge.fullStack.mongoDb.IRoleInUserColl
 import com.fonrouge.fullStack.mongoDb.IUserColl
 import com.fonrouge.fullStack.mongoDb.IUserGroupColl
 import com.fonrouge.fullStack.mongoDb.MongoDbBuilder
+import com.fonrouge.fullStack.mongoDb.MongoRbac
 import com.fonrouge.fullStack.repository.PermissionRegistry
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
@@ -31,6 +32,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -54,10 +57,47 @@ class RbacPermissionResolutionCharacterizationTest {
         MongoTestSupport.requireDocker()
     }
 
-    /** Resets the process-global permission provider that constructing an [IRoleInUserColl] registers. */
+    /**
+     * Clears any RBAC registration between tests for isolation (defensive). As of D10/P3.2a constructing an
+     * [IRoleInUserColl] no longer auto-registers — only [MongoRbac.register] does — so this resets both
+     * handles via [MongoRbac.unregister] in case a test (e.g. the D10 pin) registered explicitly.
+     */
     @AfterTest
     fun resetRegistry() {
-        PermissionRegistry.rolePermissionProvider = null
+        MongoRbac.unregister()
+    }
+
+    // ---- D10 / P3.2a — registration is explicit, not a construction side-effect ----
+
+    /**
+     * D10/P3.2a: constructing an [IRoleInUserColl] is **side-effect-free** — it no longer auto-registers a
+     * permission provider (the former `Coll.init` side-effect is gone). [MongoRbac.register] is the explicit
+     * boot wire, and it wires **both** handles: the agnostic [PermissionRegistry] provider (asserted directly)
+     * **and** the `Coll.roleInUserColl` companion Mongo's own path reads (asserted via [MongoRbac.isRegistered],
+     * which is `true` only when both are set — so dropping either half fails this test). Pins the
+     * registration-mechanism change so the side-effect cannot silently return and neither handle can be missed.
+     */
+    @Test
+    fun constructingRoleInUserCollDoesNotAutoRegisterExplicitRegisterWires() = runTest {
+        MongoRbac.unregister() // deterministic precondition: both handles clear
+        val coll = RbacFixture().newRoleInUserColl()
+        assertNull(
+            PermissionRegistry.rolePermissionProvider,
+            "constructing an IRoleInUserColl must NOT auto-register a provider (D10: side-effect removed)",
+        )
+        assertFalse(
+            MongoRbac.isRegistered,
+            "construction must wire neither RBAC handle (companion nor agnostic provider)",
+        )
+        MongoRbac.register(coll)
+        assertNotNull(
+            PermissionRegistry.rolePermissionProvider,
+            "MongoRbac.register must explicitly wire the backend-agnostic provider",
+        )
+        assertTrue(
+            MongoRbac.isRegistered,
+            "MongoRbac.register must wire BOTH handles — companion (Coll.roleInUserColl) AND agnostic provider",
+        )
     }
 
     // ---- C2 / D1 — a direct user grant outweighs group grants (ratified target) ----
@@ -287,6 +327,9 @@ class RbacPermissionResolutionCharacterizationTest {
             userGroupColl = userGroupColl,
             rootUserIds = if (asRoot) setOf(userId) else emptySet(),
         )
+
+        /** A fresh role-in-user collection — used by the D10 pin to prove construction no longer registers. */
+        fun newRoleInUserColl(): TRoleInUserColl = riuColl(asRoot = false)
 
         /** Seeds a direct [IRoleInUser] grant for [userId] on [appRole] (raw insert — no hooks/gate). */
         suspend fun grantDirect(appRole: TAppRole, permission: PermissionType, tasks: Set<CrudTask>?) {
