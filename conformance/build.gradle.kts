@@ -12,7 +12,7 @@ repositories {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
 }
 
 // Test-only module (not published): cross-engine conformance suite pinning the IRepository

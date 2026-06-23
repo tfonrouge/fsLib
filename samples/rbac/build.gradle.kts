@@ -12,7 +12,7 @@ repositories {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
 }
 
 // Runnable RBAC walkthrough (blueprint rbac-permission-resolution, P3.3). A console app — no database —

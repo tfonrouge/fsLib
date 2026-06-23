@@ -88,10 +88,10 @@ memorydb            → fullstack → core
 
 ### Technology Stack
 
-- Kotlin 2.3.x, Gradle with version catalogs (`gradle/libs.versions.toml`)
+- Kotlin 2.4.x, Gradle with version catalogs (`gradle/libs.versions.toml`)
 - Backend: Ktor (Netty), MongoDB (KMongo), Exposed (SQL), JWT auth
-- Frontend: KVision 9.x, Bootstrap, Tabulator, FontAwesome
-- JVM toolchain: 21
+- Frontend: KVision 9.6.x, Bootstrap, Tabulator, FontAwesome
+- JVM toolchain: 25 (since 6.0.0 — KVision 9.6.0's plugin + runtime artifacts require Java 25; the Gradle daemon must run on JDK 25, e.g. `-Dorg.gradle.java.home=$(brew --prefix openjdk@25)/libexec/openjdk.jdk/Contents/Home`). fsLib 6.0.0 therefore requires consumers to build with Kotlin 2.4 and **deploy on Java 25**.
 
 ### Coding Conventions
 

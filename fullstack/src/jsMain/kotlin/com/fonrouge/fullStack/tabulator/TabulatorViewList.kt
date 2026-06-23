@@ -14,7 +14,7 @@ import dev.kilua.rpc.RemoteSorter
 import dev.kilua.rpc.RpcSerialization
 import io.kvision.core.Container
 import io.kvision.core.KVScope
-import io.kvision.remote.KVCallAgent
+import dev.kilua.rpc.CallAgent
 import io.kvision.tabulator.PaginationMode
 import io.kvision.tabulator.TableType
 import io.kvision.tabulator.Tabulator
@@ -89,7 +89,7 @@ class TabulatorViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
 ) {
     private var contentHashCode: Int? = null
     private var diffContentHashCode: Boolean = false
-    private val kvCallAgent: KVCallAgent
+    private val kvCallAgent: CallAgent
     private var method: HttpMethod = HttpMethod.GET
     var oldPage: Int = -1
     var oldMaxPage: Int = -1
@@ -274,7 +274,7 @@ class TabulatorViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
             url = it.first
             method = it.second
         }
-        kvCallAgent = KVCallAgent()
+        kvCallAgent = CallAgent()
         options.ajaxURL = urlPrefix + url.drop(1)
         options.ajaxRequestFunc = { _, _, params ->
             val page: Int = params?.asDynamic()?.page as? Int ?: 1

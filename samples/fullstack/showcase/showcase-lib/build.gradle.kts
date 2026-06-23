@@ -8,7 +8,7 @@ group = "com.example"
 version = "1.0.0-SNAPSHOT"
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
     jvm {
         compilerOptions {
             freeCompilerArgs = listOf("-Xjsr305=strict")

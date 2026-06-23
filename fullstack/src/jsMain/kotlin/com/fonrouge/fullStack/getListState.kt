@@ -8,7 +8,7 @@ import com.fonrouge.base.state.ListState
 import com.fonrouge.base.state.State
 import com.fonrouge.fullStack.config.ConfigViewList
 import io.kvision.core.KVScope
-import io.kvision.remote.KVCallAgent
+import dev.kilua.rpc.CallAgent
 import kotlinx.coroutines.asPromise
 import kotlinx.coroutines.async
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -31,7 +31,7 @@ fun <T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, AIS : Any, R : Any> ICommo
     transform: (ListState<T>) -> R,
 ): Promise<R> {
     val (url, method) = ConfigViewList.serviceManager.requireCall(apiListFun)
-    val kvCallAgent = KVCallAgent()
+    val kvCallAgent = CallAgent()
     val apiListSerialized = Json.encodeToString(ApiList.serializer(apiFilterSerializer), ApiList(apiFilter = apiFilter))
     val paramList = listOf(apiListSerialized)
     return KVScope.async {
