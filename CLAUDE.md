@@ -31,6 +31,7 @@ FSLib is a Kotlin Multiplatform library (`com.fonrouge.fsLib`) for building full
 ./gradlew :samples:fullstack:contacts:run      # Run contacts sample
 ./gradlew :samples:fullstack:rpc-demo:run      # Run fullstack RPC demo
 ./gradlew :samples:fullstack:showcase:run      # Run showcase sample (ViewList, ViewItem, InMemoryRepository)
+./gradlew :samples:rbac:run                    # Run RBAC walkthrough (resolver + membership API over the in-memory grant port; no DB)
 ```
 
 ## Architecture
