@@ -149,10 +149,10 @@ The repository has two write tiers with a **one-directional** dependency:
 
 ## I6 — Per-action CRUD permission on the remote path; `call == null` is trusted
 
-**Status: Behaviorally enforced** (Mongo, SQL). SQL is pinned by conformance. Mongo enforces via
-`Coll.roleInUserColl`, **not** the `PermissionRegistry` the conformance deny-mechanism uses, so the
-suite cannot drive Mongo's check — the Mongo profile sets `enforcesPermissions = false` (D11) and
-Mongo's enforcement is verified by code (`getCrudPermission`), not the suite. The in-memory engine is
+**Status: Behaviorally enforced** (Mongo, SQL), pinned by conformance for **both**. Since the RBAC
+blueprint's P3.2b, Mongo's `getCrudPermission` routes through the same `PermissionRegistry` provider the
+conformance deny-mechanism drives (the former `Coll.roleInUserColl` split-brain is gone), so the Mongo
+profile sets `enforcesPermissions = true` and the suite drives Mongo's check too. The in-memory engine is
 **intentionally exempt** — it is a samples/tests engine that never enforces permissions.
 
 On the generic/remote path a non-null `call` engages the per-action CRUD permission check, run
@@ -162,9 +162,11 @@ SQL enforces it in the `apiItemProcess` Action branch, matching its Query branch
 `apiItem.call == null` (the trusted service tier) the check is a no-op by design — service code
 constructs trusted writes by construction. Addresses N3, N8.
 
-> Engine notes: where no `PermissionRegistry.rolePermissionProvider` is configured the check returns
-> OK (permissive), so it is a no-op for unconfigured deployments and only enforces where a provider
-> exists. The in-memory engine never invokes the check at all (by design).
+> Engine notes: where no `PermissionRegistry.rolePermissionProvider` is configured, an **enforcing** engine
+> (`permissionEnforcement == Enforce`, the default) **fails closed** on the protected remote path (RBAC
+> blueprint D6/P2.4 — reversed from the former permissive no-op, pinned by
+> `unconfiguredDefaultFailsClosedForEnforcingEngines`); an engine that declares `Off` (e.g. the in-memory
+> samples/tests engine) allows by design.
 >
 > `call`-nullness currently doubles as both *origin marker* and *trust boundary*. If that coupling
 > ever needs to break, see the deferred `WriteOrigin` option (LEDGER **D5**, PLAN P3.2).

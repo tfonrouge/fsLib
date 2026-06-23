@@ -2,7 +2,6 @@ package com.fonrouge.conformance
 
 import com.fonrouge.base.api.ApiFilter
 import com.fonrouge.base.api.ApiItem
-import com.fonrouge.base.api.PermissionEnforcement
 import com.fonrouge.base.state.ItemState
 import com.fonrouge.base.state.SimpleState
 import com.fonrouge.fullStack.mongoDb.Coll
@@ -61,18 +60,20 @@ object MongoTestSupport {
     )
 }
 
-/** Plain [Coll] for [CItem], backed by the Testcontainers Mongo. Non-RBAC test repo → declares [PermissionEnforcement.Off] (D6). */
+/**
+ * Plain [Coll] for [CItem], backed by the Testcontainers Mongo. **Enforcing** (the default) since P3.2b: the
+ * conformance harness now drives Mongo's permission path through [PermissionRegistry] (the split-brain
+ * `Coll.roleInUserColl` companion is gone), so Mongo participates in the permission-parity tests like SQL.
+ */
 open class CItemMongoRepository(mongoDbBuilder: MongoDbBuilder) :
     Coll<CItem, String, ApiFilter, String>(CommonCItem, mongoDbBuilder) {
     override val userCollFun: () -> IUserColl<*, String, *>? = { null }
-    override val permissionEnforcement: PermissionEnforcement get() = PermissionEnforcement.Off
 }
 
-/** Plain [Coll] for [CChild] (the dependent entity in I3 tests). Non-RBAC test repo → [PermissionEnforcement.Off] (D6). */
+/** Plain [Coll] for [CChild] (the dependent entity in I3 tests). Enforcing (default) — see [CItemMongoRepository]. */
 open class CChildMongoRepository(mongoDbBuilder: MongoDbBuilder) :
     Coll<CChild, String, ApiFilter, String>(CommonCChild, mongoDbBuilder) {
     override val userCollFun: () -> IUserColl<*, String, *>? = { null }
-    override val permissionEnforcement: PermissionEnforcement get() = PermissionEnforcement.Off
 }
 
 private class GateClosedMongoRepository(mongoDbBuilder: MongoDbBuilder) : CItemMongoRepository(mongoDbBuilder) {
@@ -180,17 +181,19 @@ private class FailingInitMongoRepository(mongoDbBuilder: MongoDbBuilder) : CItem
  * Mongo engine fixture (Testcontainers, decision C). Pins the convergence invariants P2.1/P2.2/P2.3
  * (hook order, delete-exactly-once, init lifecycle) against a real mongod.
  *
- * Two flags are `false` because the harness's engine-agnostic mechanisms don't reach Mongo's
- * engine-specific ones — NOT because Mongo lacks the behavior:
- * - `enforcesPermissions = false`: Mongo enforces CRUD permission via `Coll.roleInUserColl`, not the
- *   `PermissionRegistry` the conformance deny-provider uses (CONTRACT I6).
- * - `writesChangeLog = false`: `Coll.changeLogCollFun` is `IChangeLogColl`-typed, incompatible with
- *   the `IChangeLogRepository` `ChangeLogProbe` (I2 change-log clause is pinned on SQL).
+ * `enforcesPermissions = true` since P3.2b: Mongo's `getCrudPermission` now routes through the same
+ * `PermissionRegistry` provider the conformance deny-provider drives (the split-brain via `Coll.roleInUserColl`
+ * is gone — former CONTRACT I6), so the harness finally reaches Mongo's live permission path.
+ *
+ * `writesChangeLog = false` remains `false` because the harness's engine-agnostic mechanism doesn't reach
+ * Mongo's engine-specific one — NOT because Mongo lacks the behavior: `Coll.changeLogCollFun` is
+ * `IChangeLogColl`-typed, incompatible with the `IChangeLogRepository` `ChangeLogProbe` (I2 change-log clause
+ * is pinned on SQL).
  */
 class MongoConformanceFixture : ConformanceFixture {
     override val profile = EngineProfile(
         name = "Mongo",
-        enforcesPermissions = false,
+        enforcesPermissions = true,
         enforcesCanonicalHookOrder = true,
         writesChangeLog = false,
         enforcesDeleteExactlyOnce = true,

@@ -116,8 +116,12 @@ wired) at all three engines plus the still-Mongo-only resolution reach (R1).
 **Current behavior (P2.4):** the `permissionEnforcement` declaration (default `Enforce`) gates all three
 sites — an enforcing engine with no resolver **fails closed** on a remote write; `Off` opts out. Pinned
 by `unconfiguredDefaultFailsClosedForEnforcingEngines` (SQL fail-closed + Memory-allows green; Mongo in
-CI). The **reach** half (group/single-action resolution being Mongo-only; the agnostic provider exposing
-only `getCrudPermission`) is unchanged and still tracked by D5/P3.1.
+CI). **Dispatch reach — unified by P3.2b:** Mongo's `getCrudPermission` now routes through the registered
+`PermissionRegistry` provider (the same path SQL/InMemory use), so the former Mongo-only
+`Coll.roleInUserColl` dispatch — and the duplicate `CollPermission` — are gone and the conformance harness
+drives Mongo enforcement (`enforcesPermissions = true`). The remaining reach gap is the **surface**: the
+agnostic provider still exposes only `getCrudPermission` (single-action/group join it in P3.2c), plus
+native SQL/InMemory resolution ports (D5/P3.1).
 
 ---
 
@@ -163,9 +167,11 @@ modeled event"). Pinned on Mongo by the P1.2→P2.3 hook-invocation red→green 
 closed** on protected paths or **explicitly declares** non-enforcement via the `permissionEnforcement`
 member (default `Enforce`; `Off` opts out) — so the app cannot mistake allow-all for "checked and
 allowed". The declaration gates **all three** former fail-open sites (SQL `getCrudPermission`, InMemory
-`getCrudPermission` + Action branch, Mongo `CollPermission`). Silent allow-all on a protected path is
-forbidden (closes R7). The samples/tests "permission-free" mode is now an *explicit* declaration
-(`InMemoryRepository` declares `Off`; the conformance Mongo repos declare `Off`). Pinned by
+`getCrudPermission` + Action branch, and — since P3.2b — Mongo `Coll.getCrudPermission`, the unified gate
+that replaced the deleted `CollPermission`). Silent allow-all on a protected path is forbidden (closes R7).
+The "permission-free" mode is an *explicit* declaration (`InMemoryRepository` declares `Off`; `IChangeLogColl`
+declares `Off` for the audit-write exemption, P3.2b). Since P3.2b the conformance Mongo repos **enforce**
+(default `Enforce`, `enforcesPermissions = true`), so the suite drives the live Mongo gate. Pinned by
 `unconfiguredDefaultFailsClosedForEnforcingEngines` (SQL fail-closed + Memory-allows green; Mongo in CI).
 
 ### T5 — Direct user grant outweighs group grants (LOCKED — D1)

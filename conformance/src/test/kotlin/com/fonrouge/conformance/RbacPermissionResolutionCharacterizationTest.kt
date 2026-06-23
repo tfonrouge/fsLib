@@ -70,34 +70,28 @@ class RbacPermissionResolutionCharacterizationTest {
     // ---- D10 / P3.2a — registration is explicit, not a construction side-effect ----
 
     /**
-     * D10/P3.2a: constructing an [IRoleInUserColl] is **side-effect-free** — it no longer auto-registers a
-     * permission provider (the former `Coll.init` side-effect is gone). [MongoRbac.register] is the explicit
-     * boot wire, and it wires **both** handles: the agnostic [PermissionRegistry] provider (asserted directly)
-     * **and** the `Coll.roleInUserColl` companion Mongo's own path reads (asserted via [MongoRbac.isRegistered],
-     * which is `true` only when both are set — so dropping either half fails this test). Pins the
-     * registration-mechanism change so the side-effect cannot silently return and neither handle can be missed.
+     * D10/P3.2a (+P3.2b): constructing an [IRoleInUserColl] is **side-effect-free** — it no longer
+     * auto-registers a permission provider (the former `Coll.init` side-effect is gone). [MongoRbac.register]
+     * is the explicit boot wire for the single registered provider ([PermissionRegistry], which since P3.2b
+     * **every** engine — including Mongo's own `getCrudPermission` path — consults). Asserted both directly
+     * and via [MongoRbac.isRegistered]. Pins the registration-mechanism change so the side-effect cannot
+     * silently return.
      */
     @Test
     fun constructingRoleInUserCollDoesNotAutoRegisterExplicitRegisterWires() = runTest {
-        MongoRbac.unregister() // deterministic precondition: both handles clear
+        MongoRbac.unregister() // deterministic precondition: provider clear
         val coll = RbacFixture().newRoleInUserColl()
         assertNull(
             PermissionRegistry.rolePermissionProvider,
             "constructing an IRoleInUserColl must NOT auto-register a provider (D10: side-effect removed)",
         )
-        assertFalse(
-            MongoRbac.isRegistered,
-            "construction must wire neither RBAC handle (companion nor agnostic provider)",
-        )
+        assertFalse(MongoRbac.isRegistered, "construction must not register a provider")
         MongoRbac.register(coll)
         assertNotNull(
             PermissionRegistry.rolePermissionProvider,
-            "MongoRbac.register must explicitly wire the backend-agnostic provider",
+            "MongoRbac.register must explicitly wire the registered provider",
         )
-        assertTrue(
-            MongoRbac.isRegistered,
-            "MongoRbac.register must wire BOTH handles — companion (Coll.roleInUserColl) AND agnostic provider",
-        )
+        assertTrue(MongoRbac.isRegistered, "MongoRbac.register must wire the registered provider")
     }
 
     // ---- C2 / D1 — a direct user grant outweighs group grants (ratified target) ----

@@ -12,6 +12,7 @@ import com.fonrouge.fullStack.FieldPath
 import com.fonrouge.fullStack.repository.ConstructorCopier
 import com.fonrouge.fullStack.repository.IRepository
 import com.fonrouge.fullStack.repository.IRepository.Dependency
+import com.fonrouge.fullStack.repository.PermissionRegistry
 import com.mongodb.MongoCommandException
 import com.mongodb.MongoSocketException
 import com.mongodb.MongoTimeoutException
@@ -67,12 +68,6 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
     private var debug: Boolean = false,
 ) : IRepository<T, ID, FILT, UID> {
     companion object {
-        /**
-         * The RBAC role-in-user collection Mongo's own permission path (`CollPermission`) resolves through.
-         * Wired **explicitly** at boot by [MongoRbac.register] (RBAC D10 / P3.2a) — no longer a side effect
-         * of constructing a collection. `null` until registered ⇒ enforcing checks fail closed (D6).
-         */
-        internal var roleInUserColl: IRoleInUserColl<*, *, *, *, *, *>? = null
         var MAX_RECURSIVE_RESULT_FIELD = 1
 
         internal fun friendlyExceptionMessage(e: Exception): String? {
@@ -919,10 +914,15 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
      */
     @Suppress("unused")
     suspend fun getCrudPermission(apiItem: ApiItem<T, ID, FILT>): SimpleState =
-        checkCrudPermission(apiItem)
+        apiItem.call?.let { getCrudPermission(it, apiItem.crudTask) } ?: SimpleState(isOk = true)
 
     /**
      * Determines the CRUD (Create, Read, Update, Delete) permission for a given user.
+     *
+     * P3.2b: Mongo resolves through the **same** registered [PermissionRegistry] provider as SQL/InMemory —
+     * the former split-brain `Coll.roleInUserColl` companion path is gone, so the conformance harness now
+     * drives the live Mongo path. The change-log exemption is no longer a special case here: `IChangeLogColl`
+     * declares [permissionEnforcement] = `Off`, so the first guard covers it.
      *
      * @param call The ApplicationCall associated with the request, which may contain session information.
      * @param crudTask The specific CRUD task for which permission is being checked.
@@ -931,7 +931,17 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
     override suspend fun getCrudPermission(
         call: ApplicationCall,
         crudTask: CrudTask,
-    ): SimpleState = checkCrudPermission(call, crudTask)
+    ): SimpleState {
+        // D6: an explicitly non-enforcing repository (incl. IChangeLogColl, which declares Off) always allows.
+        if (permissionEnforcement == PermissionEnforcement.Off) return SimpleState(isOk = true)
+        // D6: enforcing, but no resolver wired → fail CLOSED (was fail-open, R7).
+        val provider = PermissionRegistry.rolePermissionProvider
+            ?: return SimpleState(
+                isOk = false,
+                msgError = "Permission enforcement is on but no permission provider is registered",
+            )
+        return provider.getCrudPermission(commonContainer, call, crudTask)
+    }
 
     /**
      * Retrieves the user session associated with the current API call.

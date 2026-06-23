@@ -127,7 +127,7 @@ abstract class RepositoryConformanceTests {
      * Enforce`) must **fail closed** on a remote (`call != null`) write — closing the former fail-open
      * hole (R7) where an unconfigured registry silently allowed. An explicitly `Off` engine still allows.
      * The `enforcesPermissions` profile flag marks the engines whose enforcement the harness can drive
-     * (SQL today): those are `Enforce`; the others are declared `Off`.
+     * (SQL and, since RBAC P3.2b, Mongo): those are `Enforce`; the others (in-memory) declare `Off`.
      */
     @Test
     fun unconfiguredDefaultFailsClosedForEnforcingEngines() = runTest {

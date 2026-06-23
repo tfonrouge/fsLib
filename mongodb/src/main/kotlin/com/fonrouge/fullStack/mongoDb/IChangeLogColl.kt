@@ -1,6 +1,7 @@
 package com.fonrouge.fullStack.mongoDb
 
 import com.fonrouge.base.api.ApiItem
+import com.fonrouge.base.api.PermissionEnforcement
 import com.fonrouge.base.common.ICommonChangeLog
 import com.fonrouge.base.common.ICommonContainer
 import com.fonrouge.base.model.BaseDoc
@@ -40,6 +41,16 @@ abstract class IChangeLogColl<ChangeLog : IChangeLog<U, UID>, U : IUser<UID>, UI
 ), IChangeLogRepository {
     abstract val commonContainerUser: ICommonContainer<U, UID, *>
     abstract val userInfo: ((U?) -> String)
+
+    /**
+     * Change-log collections are **never user-gated**: entries are system-written audit records, not user
+     * CRUD. They therefore declare [PermissionEnforcement.Off] (RBAC D6) — the explicit, declarative RBAC
+     * exemption (P3.2b). This replaces the former special-case `isSubclassOf(IChangeLogColl)` check in the
+     * Mongo permission path: `getCrudPermission`'s `Off` guard now covers the exemption uniformly across
+     * engines, with no dispatch-time type check.
+     */
+    override val permissionEnforcement: PermissionEnforcement
+        get() = PermissionEnforcement.Off
 
     /**
      * Builds a change log entry for the given action and API item, storing details about changes

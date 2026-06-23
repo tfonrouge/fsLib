@@ -52,6 +52,10 @@ dependencies {
     // tests Assume-skip when Docker is absent (local dev) and run for real in CI (decision C).
     testImplementation(libs.testcontainers.mongodb)
 
+    // kvision-common-remote supplies io.kvision.types.OffsetDateTime, the date type IChangeLog uses —
+    // needed by the no-DB change-log RBAC-exemption pin (MongoChangeLogExemptionTest, P3.2b).
+    testImplementation(libs.kvision.common.remote)
+
     testImplementation(kotlin("test"))
     testImplementation(libs.junit) // org.junit.Assume for assume-gated target tests
     testImplementation(libs.kotlinx.coroutines.test)
