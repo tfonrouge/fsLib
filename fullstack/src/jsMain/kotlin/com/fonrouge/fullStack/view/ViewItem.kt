@@ -828,11 +828,40 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
      * tabulators are always authoritative for their key. Don't use this helper for tabulator-bound
      * properties; the value would be silently lost on submit.
      *
+     * ### Polymorphic / star-projected property types
+     * Values of the `IBaseId` family (`OId` / `StringId` / `IntId` / `LongId`) are encoded through their
+     * real serializers via a non-reified fast path ([encodeBaseIdOrNull]), so the canonical parent-ID
+     * idiom works even when the property type is star-projected — e.g. a polymorphic FK
+     * `OId<out IHeader<*>>`, where reified `serializer<V>()` would otherwise throw
+     * `IllegalArgumentException: Star projections in type arguments are not allowed` **at runtime**,
+     * aborting the display cycle with a blank form. For star-projected types *outside* the id family,
+     * use the non-reified `addSerializedValue(property, element: JsonElement)` overload and encode the
+     * value yourself.
+     *
      * @param property Property whose name becomes the map key.
      * @param value Value to encode and include in every subsequent submission payload.
      */
     inline fun <reified V> addSerializedValue(property: KProperty1<T, V?>, value: V) {
-        hiddenFields[property.name] = Json.encodeToJsonElement<V>(value)
+        hiddenFields[property.name] = encodeHiddenFieldValue(property.name, value)
+    }
+
+    /**
+     * Non-reified escape hatch of [addSerializedValue]: registers a pre-encoded [element] under
+     * [property]'s name in the persistent [hiddenFields] bucket, with the exact same overlay semantics
+     * as the reified overload (merged into every submission; skipped if a form control shares the key;
+     * overwritten by a bound tabulator).
+     *
+     * Use it when the property's declared type defeats reified serializer resolution and is not covered
+     * by the id-family fast path — i.e. star-projected generics outside `IBaseId`. The caller encodes:
+     * for an id that would be `JsonPrimitive(value.id)`; for a `@Serializable` payload,
+     * `Json.encodeToJsonElement(TheSerializer, value)`.
+     *
+     * @param property Property whose name becomes the map key (its value type is irrelevant — only the
+     *   name is used, which is why a star-projected property is accepted here).
+     * @param element Pre-encoded value to include in every subsequent submission payload.
+     */
+    fun addSerializedValue(property: KProperty1<T, *>, element: JsonElement) {
+        hiddenFields[property.name] = element
     }
 
     /**
