@@ -31,6 +31,22 @@ not design** — and it is the part of this blueprint that is already trustworth
 `ConfigView` derives `"View" + commonContainer.name` and merely *happens* to match (C2). Once
 documents cite URLs, this stops being cosmetic.
 
+**Measured 2026-07-16 (P1.1), and it narrows this decision sharply.** Across mppArel's **196
+registered views** (15 plain / 79 item / 102 list), the divergence I feared is **largely theoretical**:
+
+| | |
+|---|---|
+| Derive from `viewKClass.simpleName` | **194** |
+| Explicit `baseUrl`, deliberate | **2** — `ViewHome` → `""` (the root), `ViewBolsaTrabajo` → `"bolsaDeTrabajo"` |
+| Plain views where `"View" + container.name` **failed** to match the class name | **0** |
+
+So the 13 remaining plain views coincide — by **naming convention, not guarantee**. The hazard is real
+but latent: renaming a `Common*` moves its view's URL without touching the view class, and nothing
+would say so. P1.1 now makes that event red.
+
+**This also kills option (a) outright**: unifying on `viewKClass.simpleName` would move `ViewHome`
+from `#/` to `#/ViewHome` — the application root. Not a trade-off; a non-starter.
+
 **Options.**
 - **(a) Unify** on `viewKClass.simpleName` for all three. Honest and greppable — but **moves the URL of
   every plain `ConfigView` whose container stem differs from its class**, breaking existing bookmarks
@@ -40,10 +56,10 @@ documents cite URLs, this stops being cosmetic.
 - **(c) Assert the coincidence** with a test (`baseUrl == viewKClass.simpleName` for every registered
   view) and fix violators individually, keeping the derivation as-is.
 
-**Recommendation: (c), then (b) as the written rule.** It converts a coincidence into a checked
-invariant without moving any URL, and (a) remains available once the test says how many violators
-exist. Note (a) and the CI documentation check are in tension: the check would go green while every
-citation silently pointed elsewhere.
+**Recommendation: (c) + (b), and (a) is now refuted by measurement.** P1.1 shipped the (c) half: the
+coincidence is a checked invariant, no URL moved. What remains for the owner is the (b) half — writing
+the rule that **the authority is `configView.url`, never an assumption about a class name** — plus
+whether the exception map's two entries stay as they are.
 
 **Two properties, not one — do not conflate them:**
 
@@ -52,10 +68,38 @@ citation silently pointed elsewhere.
 | **`configView.url` is a stable identity for a destination** (T2) | **No.** The URL is whatever the derivation yields; it is stable and citable either way. |
 | **The view class name can be *inferred* to be the URL** | **Yes.** This is the only thing C2's divergence breaks. |
 
-**Falsification.** If P1.1's violator list contains views that cannot be renamed (public bookmarks,
-motor integration), option (a) dies and (b) is the only survivor — a written rule that the authority is
-`configView.url`, never an assumption about a class name. **T2 is unaffected**: identity was never the
-class name. What is lost is only the shortcut of citing one.
+**Falsification — already triggered, in the strongest form.** The condition was "an exception exists
+that cannot be renamed". `ViewHome` → `""` **is the application root**: unifying it to `#/ViewHome`
+is not a trade-off, it is a non-starter. Option (a) is dead; **(b) is the surviving rule** — the
+authority is `configView.url`, never an assumption about a class name. **T2 is unaffected**: identity
+was never the class name; what is lost is only the shortcut of citing one.
+
+**Open sub-question raised by P1.1-collision — a `baseUrl` can be *taken*, not just moved.** Two
+distinct mechanisms, neither of which the "does the URL move?" framing covers:
+
+1. **Overwrite within a family.** Registration is direct assignment into a `MutableMap`, so two
+   `ConfigView`s sharing a `baseUrl` silently overwrite — one destination vanishes with no error, and
+   post-hoc map inspection cannot see the loser.
+2. **Shadowing across families.** The three maps are independent; a plain + item + list on the same
+   `baseUrl` all register successfully, and `findByUrl`'s precedence (`plain ?: item ?: list`) makes
+   the lower two unreachable by URL. No count changes; nothing is lost; two destinations are simply
+   unroutable.
+
+Neither occurs in mppArel today (measured 2026-07-16). **(2) is pinned** by a self-deriving
+consumer-side test. **(1) is not, and cannot be** — and that is the argument for deciding this here.
+
+A count-vs-literal test for (1) was written and then deleted: **it passed green in the exact scenario
+it targeted.** Adding a second `ConfigViewList` on an existing view class kept the map at 102, the
+literal said 102, and every test stayed green with a destination unreachable. The loser leaves **no
+runtime trace**, so no post-hoc inspection of the registry can see it; a colliding *addition* keeps
+cardinality constant by construction. It was removed rather than weakened, on the principle that a
+check certifying a safety that does not exist is worse than none.
+
+**So: whether fsLib rejects a duplicate `baseUrl` at insertion is not a nice-to-have — it is the only
+place the property can be enforced at all.** It is the same property as D1's — a published URL keeps
+its meaning — and (1) is the one attack the consumer is structurally blind to. Note the collision is
+not exotic: two `ConfigViewList`s over the same view class is exactly what "a second destination on
+the same view, differently filtered" looks like, which is the case T2 exists for.
 
 ## D2 — What is an `ICommonContainer`?
 
