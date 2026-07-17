@@ -167,13 +167,13 @@ for views that **respect** their filter.
 Two destinations differing only by filter are two destinations. `key = targetUrl` satisfies this and
 doubles as the citable link — **provided T1 holds**. Under C7 it does not: two URLs, one destination.
 
-### T3 — The container label is canonical by construction *(gated on D3)*
+### T3 — The container label is canonical by construction *(**D3 LOCKED 2026-07-17 — (a)**)*
 
 A destination's label defaults to `configView.label` (C5) — so the owner's rule holds without
 discipline — and an override is a declared, greppable exception rather than a literal at a call site.
 Whether a consumer needs a second, shorter form for space-constrained surfaces (the home card's
 "OT Taller" vs "Ordenes de Trabajo de Taller") is an **open empirical question**, to be answered by
-rendering, not by adding a `shortLabel` up front.
+rendering, not by adding a `shortLabel` up front — `shortLabel` is **deferred**, not adopted (D3).
 
 ### T4 — Filter semantics are declared, not discovered *(gated on D4)*
 
