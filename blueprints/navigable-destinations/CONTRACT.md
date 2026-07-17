@@ -177,11 +177,21 @@ Whether a consumer needs a second, shorter form for space-constrained surfaces (
 "OT Taller" vs "Ordenes de Trabajo de Taller") is an **open empirical question**, to be answered by
 rendering, not by adding a `shortLabel` up front — `shortLabel` is **deferred**, not adopted (D3).
 
-### T4 — Filter semantics are declared, not discovered *(gated on D4)*
+### T4 — Filter semantics are declared, not discovered *(gated on D4 — still OPEN)*
 
-A `ConfigView`-level filter states whether it is a **replaceable default** or an **imposed scope**.
-Modeling C7 as a default would be a **regression**: `#/ViewCapturaQA?apiFilter={"soloPendientesQa":false}`
-would show every step, and "Control de Calidad" would stop being a pending queue by editing a URL.
+A filter's semantics are **declared per field**, not discovered by rendering. The live taxonomy is
+**three rules**: **pass-through** (take what arrived — the un-declared baseline), **default** (fill if
+absent), **scope** (impose regardless). Modeling C7's `ViewCapturaQA` scope as a default would be a
+**regression**: `#/ViewCapturaQA?apiFilter={"soloPendientesQa":false}` would show every step, and
+"Control de Calidad" would stop being a pending queue by editing a URL.
+
+> **Not yet a settled contract — D4 is the one OPEN decision.** An earlier draft of T4 said a
+> *`ConfigView`-level* filter declares default-or-scope. The LEDGER's per-field, three-rule finding
+> shows a **whole-filter** field cannot express `AnalisisEfic`'s mix (`startDate` default, `endDate`
+> pass-through, `areaTrabajoIdSet` default). The unresolved tension D4 must settle: a shape that is
+> **per-field-expressive AND readable without rendering** — and those pull apart (per-field computed
+> defaults want a lambda, which is nearly `apiFilterInit`, already rejected by C8). If no such shape
+> exists, T1 narrows: a destination declares its URL only for the fields it can, per destination.
 
 ### T5 — The navigation bridge travels with the document *(**D5 LOCKED 2026-07-17 — (a)**)*
 

@@ -22,7 +22,7 @@ the evidence is complete; the remaining decision is the owner's.
 | **D3** | where does the destination label live? | ✅ **LOCKED 2026-07-17 — (a)**: on the destination, default = `configView.label` (container label holds by construction; override = declared data). **`shortLabel` deferred** — added only if rendering all three consumers proves the card breaks. |
 | **D3b** | which `ViewItem` actions are catalog destinations? | ✅ **LOCKED 2026-07-17**: **Create + Read + Update in, Delete out** (written policy). `Create` is a distinct id-less variant, and builds its URL the way it navigates (never `urlCreate`, F14/C6b). Delete's mechanism stays; only its catalog exclusion is policy. |
 | **D4** | filter: replaceable default or imposed scope? | **(c) both, explicitly declared** — both semantics are already live in the app. Open and load-bearing: the shape must be *per-field-expressive AND readable without rendering*, and those pull apart (may cap T1). |
-| **D5** | help-doc navigation bridge | ✅ **LOCKED 2026-07-17 — (a)**: instrument the document at construction on **both** C9 paths; `(window.opener \|\| window.parent \|\| window).location.hash`. Parent-side interceptor refused (fails on theme rebuild + detached windows). Binds P1.4: blob iframe stays same-origin + unsandboxed. |
+| **D5** | help-doc navigation bridge | ✅ **LOCKED 2026-07-17 — (a)**: instrument the document at construction on **both** C9 paths; route to the app window (`opener`, or `parent` when `!== window`), **not** a bare `(opener \|\| parent \|\| window)` chain — no-app-window must hit a visible observable (P3.3), not self-navigate. Parent-side interceptor refused. Binds P1.4: blob iframe stays same-origin + unsandboxed. |
 
 ---
 
@@ -383,9 +383,10 @@ rot, relocated into the fix — so a test must pin it, or (a) is a trap.
 - **(c) Absolute URLs + `target="_top"`.** Works, but hardcodes the host into documents that must be
   identical in dev and prod.
 
-**Recommendation: (a).** Open sub-questions: are `<body>`-less fragments (C11, 17 docs) instrumented,
-wrapped, or declared out of scope? And how does the bridge degrade when `window.opener` is null (a
-reloaded detached window) — silently, or visibly?
+**Recommendation: (a).** *(Both sub-questions this recommendation once left open are now settled by the
+LOCKED DECISION above: `<body>`-less fragments are out of scope until one reaches path A, then wrapped;
+and the no-app-window case degrades **visibly** via the P3.3 observable, never silently. Kept here as
+the pre-decision reasoning, not as live open choices.)*
 
 **Falsification.** If the blob iframe ever needs `sandbox`, (a)'s bridge dies silently. That invariant
 must be pinned by a test, or (a) is a trap.
