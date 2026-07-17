@@ -41,8 +41,13 @@ interface IRolePermissionProvider {
  *
  * When no provider is registered, the outcome is **not** unconditionally "allowed": each repository's
  * `permissionEnforcement` (RBAC blueprint D6, since P2.4) decides. An enforcing repository
- * (`PermissionEnforcement.Enforce`, the default) **fails closed** on a remote write when no provider is
- * wired; a non-enforcing one (`PermissionEnforcement.Off`) treats the missing provider as allowed.
+ * (`PermissionEnforcement.Enforce`, the default) **fails closed** on every remote (`call != null`)
+ * operation when no provider is wired — reads and lists included, not only writes; a non-enforcing one
+ * (`PermissionEnforcement.Off`) treats the missing provider as allowed.
+ *
+ * Only the MongoDB module ships an implementation, and it is registered by `MongoRbac.register`. An
+ * application without `:mongodb` that wants enforcement must implement [IRolePermissionProvider] itself
+ * and assign it to [rolePermissionProvider]; there is no native SQL RBAC backend yet.
  */
 object PermissionRegistry {
 
@@ -50,7 +55,7 @@ object PermissionRegistry {
      * The currently registered permission provider, or null if none is registered.
      *
      * When null, the effective verdict is governed by the calling repository's `permissionEnforcement`
-     * (Enforce ⇒ fail-closed for remote writes; Off ⇒ allowed) — it is not implicitly allowed.
+     * (Enforce ⇒ fail-closed for all remote CRUD; Off ⇒ allowed) — it is not implicitly allowed.
      */
     var rolePermissionProvider: IRolePermissionProvider? = null
 }

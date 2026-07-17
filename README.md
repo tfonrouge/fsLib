@@ -51,14 +51,18 @@ your-app  ──>  fullstack  ──>  core
 
 | Component | Technology | Version |
 |-----------|-----------|---------|
-| Language | [Kotlin](https://kotlinlang.org/) (Multiplatform) | 2.3.x |
+| Language | [Kotlin](https://kotlinlang.org/) (Multiplatform) | 2.4.x |
 | Backend | [Ktor](https://ktor.io/) (Netty) | 3.4.x |
-| MongoDB | [KMongo](https://litote.org/kmongo/) (coroutine) | 5.5.x |
+| MongoDB | [KMongo](https://litote.org/kmongo/) (coroutine) | 5.6.x |
 | SQL | [Exposed](https://github.com/JetBrains/Exposed) | 0.61.x |
-| Frontend | [KVision](https://kvision.io/) | 9.4.x |
-| RPC | [Kilua RPC](https://github.com/rjaros/kilua-rpc) | 0.0.42 |
-| Serialization | [kotlinx-serialization](https://github.com/Kotlin/kotlinx.serialization) | 1.10.x |
-| JVM | Toolchain 21 | |
+| Frontend | [KVision](https://kvision.io/) | 9.6.x |
+| RPC | [Kilua RPC](https://github.com/rjaros/kilua-rpc) | 0.0.45 |
+| Serialization | [kotlinx-serialization](https://github.com/Kotlin/kotlinx.serialization) | 1.11.x |
+| JVM | Toolchain 25 | |
+
+> **Java 25 is required since 6.0.0** — build *and* runtime. KVision 9.6.0's runtime artifacts are
+> Java 25 bytecode, so an earlier JRE fails at class-load. Need Java 21? Use `5.0.0`, which carries the
+> same library behavior on KVision 9.5.0 / Kotlin 2.3.20.
 
 ---
 
@@ -73,7 +77,7 @@ Add the dependency to your module's `build.gradle.kts`:
 ```kotlin
 // Version catalog (gradle/libs.versions.toml)
 [versions]
-fslib = "4.0.0"
+fslib = "6.0.0"
 
 [libraries]
 fslib-core = { module = "com.fonrouge.fslib:core", version.ref = "fslib" }
@@ -91,12 +95,12 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:4.0.0")
+                api("com.fonrouge.fslib:fullstack:6.0.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:memorydb:4.0.0")
+                implementation("com.fonrouge.fslib:memorydb:6.0.0")
             }
         }
     }
@@ -109,12 +113,12 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:4.0.0")
+                api("com.fonrouge.fslib:fullstack:6.0.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:mongodb:4.0.0")
+                implementation("com.fonrouge.fslib:mongodb:6.0.0")
             }
         }
     }
@@ -127,12 +131,12 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:4.0.0")
+                api("com.fonrouge.fslib:fullstack:6.0.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:sql:4.0.0")
+                implementation("com.fonrouge.fslib:sql:6.0.0")
             }
         }
     }
@@ -145,13 +149,13 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:4.0.0")
+                api("com.fonrouge.fslib:fullstack:6.0.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:mongodb:4.0.0")
-                implementation("com.fonrouge.fslib:sql:4.0.0")
+                implementation("com.fonrouge.fslib:mongodb:6.0.0")
+                implementation("com.fonrouge.fslib:sql:6.0.0")
             }
         }
     }
@@ -161,10 +165,12 @@ kotlin {
 ### Publishing to Local Maven
 
 ```bash
-./gradlew publishToMavenLocal
+./gradlew publishToMavenLocal -PSNAPSHOT
 ```
 
-This publishes `:core`, `:fullstack`, `:mongodb`, `:sql`, `:memorydb`, `:media`, and `:ssr` to your local Maven repository (`~/.m2/repository`).
+This publishes `:core`, `:fullstack`, `:mongodb`, `:sql`, `:memorydb`, `:media`, and `:ssr` to your local Maven repository (`~/.m2/repository`) as `6.0.0-SNAPSHOT`.
+
+The `-PSNAPSHOT` flag is **required**: publishing a release version to `~/.m2/` would silently shadow the official Maven Central artifact for every project on the machine, so a bare `publishToMavenLocal` is blocked and fails at configuration time. Use `-PFORCE_LOCAL` only if you genuinely need to override that. See [Local Development with SNAPSHOT](#local-development-with-snapshot).
 
 ---
 
@@ -390,9 +396,54 @@ FSLib includes a built-in RBAC system:
 - **`IRoleInGroup`** — Assigns roles to groups
 - **`IUserGroup`** — Links users to groups with inherited roles
 
-Permissions are checked automatically on every CRUD operation via `getCrudPermission()`. Roles are auto-created for new repository classes on first access.
+Permissions are checked automatically on every CRUD operation via `getCrudPermission()`, and resolved by
+`RbacResolver` — a pure, engine-agnostic algebra: root short-circuit → direct-grant precedence → group
+tie-break → role default. Resolution is **side-effect-free**: a permission check never writes.
 
-The permission system is decoupled from the database engine through `IRolePermissionProvider` and `PermissionRegistry`. The MongoDB module registers its provider automatically; SQL repositories consume it without importing MongoDB types.
+### Wiring RBAC (required since 5.0.0)
+
+Registration and role provisioning are **explicit boot steps**. Both were implicit before 5.0.0 — if you
+are upgrading, read [MIGRATION.md](MIGRATION.md#4x--500--explicit-rbac-registration).
+
+```kotlin
+val roleInUserColl = RoleInUserColl(mongoDb)
+MongoRbac.register(roleInUserColl)        // required — otherwise every remote CRUD op is denied
+check(MongoRbac.isRegistered)             // optional boot assertion
+
+appRoleColl.ensureRoles(                  // roles are not created on first access
+    crudContainers = listOf(CommonTask),
+    singleActions = listOf("ReportService" to "exportPayroll"),
+)
+```
+
+Enforcement **fails closed**: a repository at the default `permissionEnforcement = Enforce` with no
+provider registered denies **all** remote CRUD — reads and lists included — rather than allowing it.
+Declare `permissionEnforcement = PermissionEnforcement.Off` on repositories that are deliberately not
+permission-governed.
+
+### Group-aware membership
+
+For a `(userId, appRoleId)` pair, use the membership API rather than querying `RoleInUser` directly — a
+raw count is group-blind and wrongly denies a user whose role comes only from a group:
+
+```kotlin
+roleInUserColl.hasSingleActionGrant(userId, appRoleId)   // does an edge exist (direct OR group)?
+roleInUserColl.isAllowedSingleAction(userId, appRoleId)  // is the user allowed (full resolution)?
+```
+
+Existence is not authorization — pick deliberately. `./gradlew :samples:rbac:run` walks through both
+without a database.
+
+The permission system is decoupled from the database engine through `IRolePermissionProvider` and
+`PermissionRegistry`. Every engine — MongoDB, SQL, and in-memory — routes through the same registered
+provider when enforcing, so `SqlRepository` enforces without importing MongoDB types.
+
+> **The only provider fsLib ships is the MongoDB one** (registered by `MongoRbac.register`). There is no
+> native SQL RBAC backend yet. A SQL-only app that wants enforcement must implement
+> `IRolePermissionProvider` and assign it to `PermissionRegistry.rolePermissionProvider`; otherwise
+> declare `permissionEnforcement = PermissionEnforcement.Off`. Note that a SQL-only app which never
+> configured RBAC **silently allowed everything on 4.x and is denied on 5.0.0+** — see
+> [MIGRATION.md](MIGRATION.md#3-declare-non-enforcing-repositories).
 
 ---
 
@@ -477,7 +528,7 @@ This produces routes like `/rpc/ITaskService.apiList` instead of `/rpc/routeTask
 
 ```kotlin
 // Main.kt (jvmMain)
-val contract = RouteContract(version = "4.0.0")
+val contract = RouteContract(version = "1.0.0")   // your application's API version, not fsLib's
 contract.register(TaskServiceManager, "ITaskService")
 
 routing {
@@ -491,7 +542,7 @@ Third-party clients fetch the contract at startup to discover available services
 
 ```json
 {
-  "version": "4.0.0",
+  "version": "1.0.0",
   "protocol": {
     "format": "json-rpc-2.0",
     "contentType": "application/json",
@@ -542,6 +593,10 @@ A standalone Android client that consumes the showcase API contract is available
 
 ## Build Commands
 
+> **Requires the Gradle daemon on JDK 25** (since 6.0.0 — KVision 9.6.0's plugin needs it). If your
+> default JDK is older, pass it per invocation:
+> `./gradlew -Dorg.gradle.java.home=<jdk25-home> <task>`
+
 ```bash
 ./gradlew build                    # Build all modules
 ./gradlew :core:build              # Build only the core module
@@ -558,7 +613,7 @@ A standalone Android client that consumes the showcase API contract is available
 To publish a SNAPSHOT version to your local Maven repository for development and testing:
 
 ```bash
-./gradlew publishToMavenLocal -PSNAPSHOT   # Publishes as 4.0.0-SNAPSHOT to ~/.m2/
+./gradlew publishToMavenLocal -PSNAPSHOT   # Publishes as 6.0.0-SNAPSHOT to ~/.m2/
 ./gradlew :core:publishToMavenLocal -PSNAPSHOT  # Single module only
 ```
 
@@ -570,13 +625,13 @@ repositories {
 }
 
 dependencies {
-    implementation("com.fonrouge.fsLib:fullstack:4.0.0-SNAPSHOT")
+    implementation("com.fonrouge.fslib:fullstack:6.0.0-SNAPSHOT")
 }
 ```
 
 > **Tip:** Gradle caches SNAPSHOT dependencies. If you republish the same snapshot version, use `--refresh-dependencies` in the consuming project to pick up the latest artifacts.
 
-> **Safety:** Running `publishToMavenLocal` without `-PSNAPSHOT` is blocked by default. Publishing a release version (e.g., `4.0.0`) to `~/.m2/` would silently shadow the official Maven Central artifact for every project on the machine. If you need to override this check, use `-PFORCE_LOCAL`.
+> **Safety:** Running `publishToMavenLocal` without `-PSNAPSHOT` is blocked by default. Publishing a release version (e.g., `6.0.0`) to `~/.m2/` would silently shadow the official Maven Central artifact for every project on the machine. If you need to override this check, use `-PFORCE_LOCAL`.
 
 ### Sample Applications
 
@@ -591,6 +646,9 @@ dependencies {
 ./gradlew :samples:ssr:basic:run
 ./gradlew :samples:ssr:catalog:run
 ./gradlew :samples:ssr:advanced:run
+
+# RBAC walkthrough (console, no database)
+./gradlew :samples:rbac:run
 ```
 
 ---
@@ -637,6 +695,10 @@ FSLib/
       basic/                       # Basic SSR sample
       catalog/                     # Catalog SSR sample
       advanced/                    # Advanced SSR sample
+    rbac/                          # RBAC walkthrough (console, no database)
+  blueprints/                      # Design artifacts: BRIEF / CONTRACT / LEDGER / PLAN per blueprint
+  CHANGELOG.md                     # Release history
+  MIGRATION.md                     # Version-scoped upgrade notes
   CLAUDE.md                        # AI assistant instructions
   HELP-DOCS-GUIDE.md               # Help documentation guide
 ```
@@ -645,7 +707,9 @@ FSLib/
 
 ## Requirements
 
-- **JDK 21** or higher
+- **JDK 25** — required for both building and running since 6.0.0 (KVision 9.6.0 ships Java 25
+  bytecode). On 5.0.0 and earlier, JDK 21 or higher.
+- **Kotlin 2.4** in the consuming project (since 6.0.0)
 - **MongoDB** (if using the `:mongodb` module)
 - **SQL Server** (if using the `:sql` module — MSSQL via jTDS or JDBC driver)
 - **Chrome** (for JS tests via Karma)

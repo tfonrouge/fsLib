@@ -2,6 +2,159 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- `ViewItem.addSerializedValue` no longer throws `IllegalArgumentException` ("Star projections in type
+  arguments are not allowed") at runtime for a star-projected property type — the real case being a
+  polymorphic foreign key such as `OId<out IRutaProceso<*>>`. The failure surfaced inside
+  `onBeforeDisplayForm` as a **blank form with no compile-time signal**. `IBaseId` types
+  (`OId`/`StringId`/`IntId`/`LongId`) now take a non-reified fast path that dispatches on the concrete
+  class and delegates to the real id serializers, so the canonical parent-ID idiom works for
+  polymorphic FKs unchanged. The residual reified path now wraps the error with an actionable message
+  naming the property.
+
+### Added
+- `ViewItem.addSerializedValue(property, element: JsonElement)` — a non-reified overload for
+  star-projected types outside the id family. Previously `hiddenFields` was `internal` with no public
+  door, forcing downstream workarounds through `serverSeeds` (which has different drain semantics).
+
+## [6.0.0] - 2026-06-23
+
+Toolchain release. Upgrades the frontend/build stack to KVision 9.6.0 + Kotlin 2.4, which moves the
+project to a **Java 25** toolchain. No library behavior changed — every breaking aspect is a build and
+runtime requirement inherited from the upgraded dependencies.
+
+### Changed
+- **Breaking**: the JVM toolchain is now **25** (was 21), project-wide. KVision 9.6.0's Gradle plugin
+  requires a Java 25 build, and its runtime artifacts (`kvision-common-remote` date types, consumed by
+  `:core`) are Java 25 bytecode. Consumers of `6.0.0` must **build with Kotlin 2.4 and deploy on
+  Java 25** — an earlier JRE fails at class-load with `UnsupportedClassVersionError` (class file
+  version 69.0).
+- **Breaking**: dependency upgrades — KVision 9.5.0 → 9.6.0, Kotlin 2.3.20 → 2.4.0, KSP 2.3.5 → 2.3.9,
+  Kilua RPC 0.0.43 → 0.0.45, kotlinx-coroutines 1.10.2 → 1.11.0, kotlinx-serialization 1.10.0 → 1.11.0.
+- The fullstack JS client migrated from `io.kvision.remote.KVCallAgent` to `dev.kilua.rpc.CallAgent`
+  (Kilua RPC 0.0.45 removed `KVCallAgent`; the `jsonRpcCall` signature is identical). Internal — no
+  fsLib signature changed.
+
+### Migration Guide
+- **Deploy on Java 25** and build with Kotlin 2.4. This is the whole migration; there is no source
+  change on the fsLib API surface. If either is not an option, stay on `5.0.0` — it carries the same
+  library behavior on KVision 9.5.0 / Kotlin 2.3.20 / Java 21.
+- Building **fsLib itself** additionally requires the Gradle daemon to run on JDK 25
+  (`-Dorg.gradle.java.home=<jdk25-home>`); see `CONTRIBUTING.md`.
+
+## [5.0.0] - 2026-06-22
+
+The RBAC permission-resolution release. Permission resolution (user **and** group action assignment) is
+now a total, engine-agnostic algebra (`blueprints/rbac-permission-resolution/`, decisions D1–D10):
+extracted out of the Mongo collection into a pure `RbacResolver` over an `IRbacGrantPort`, proven over
+two real ports, with two unsafe-Allow foot-guns closed, the fail-open default replaced by fail-closed
+enforcement, resolution made side-effect-free, and a group-aware membership API added for consumers.
+
+Three of the breaking changes are **silent-to-compile, loud-at-runtime**: an app that does not adopt
+them keeps compiling and starts denying. See the Migration Guide — in particular
+`MongoRbac.register(...)`.
+
+### Changed
+- **Breaking**: RBAC provider registration is now **explicit** (LEDGER D10). Constructing an
+  `IRoleInUserColl` no longer wires the process RBAC state as a `Coll.init` side-effect. Applications
+  must call `MongoRbac.register(roleInUserColl)` **once at boot**; `MongoRbac.isRegistered` is the boot
+  diagnostic, `MongoRbac.unregister()` the test-isolation hook. Until registered, an enforcing
+  repository fails closed (D6) — remote CRUD is denied, including for a user your `rootUser()` override
+  would have allowed, because the gate precedes resolution.
+- **Breaking**: RBAC roles are no longer **lazily provisioned** on first permission check (D4, R5).
+  Resolution is side-effect-free: an unprovisioned role now denies instead of self-inserting on a
+  read-shaped check. Provisioning moved to an explicit `IAppRoleColl.ensureRoles(crudContainers,
+  singleActions)` boot entry point, which aggregates its primitives' results and returns an error-free
+  state only if every role was provisioned (no false success).
+- **Breaking**: enforcement **fails closed** (D6, R7). A repository left at the default
+  `permissionEnforcement = Enforce` with no permission provider registered now **denies all** remote
+  (`call != null`) CRUD — **reads and lists included, not only writes** — where it previously allowed
+  everything silently. `InMemoryRepository` and `IChangeLogColl` declare `PermissionEnforcement.Off` —
+  a deliberately non-enforcing engine and the declarative change-log exemption respectively.
+- **Breaking**: group resolution **verdicts** changed, in **both** directions — see Fixed and the
+  Migration Guide.
+- Mongo's `getCrudPermission` now routes through the same registered `PermissionRegistry` provider that
+  SQL and in-memory consume (R1). The Mongo-only `Coll.roleInUserColl` companion and `CollPermission`
+  are gone, resolving the split-brain where Mongo enforced through a handle the conformance harness
+  could not drive; Mongo now runs the conformance permission suite with `enforcesPermissions = true`.
+
+### Added
+- `RbacResolver` (`:fullstack` jvmMain) — the pure, backend-agnostic, `ApplicationCall`-free resolution
+  algebra (root short-circuit → direct-grant precedence → group tie-break → role default), driving all
+  data access through `IRbacGrantPort` (D5). Proven over two real ports: Mongo and an in-memory one.
+- `RbacMembership` — the consumer-facing `(userId, appRoleId)` **group-aware** SingleAction membership
+  API (D7–D9), closing a real group-blind bypass: a role held only through a group (no direct row) was
+  invisible to a raw `countDocuments(RoleInUser by userId + appRoleId)` and the user was wrongly denied.
+  Two ops with deliberately separate semantics, never blended — `hasSingleActionGrant` (edge existence,
+  direct **or** group) and `isAllowedSingleAction` (authorization = the resolver, **not** a
+  deny-override union, so a direct Allow beats a group Deny).
+- `MongoRbac` — the explicit boot registrar (`register` / `unregister` / `isRegistered`).
+- `IAppRoleColl.ensureRoles(crudContainers, singleActions)` — explicit boot-time role provisioning.
+- `PermissionEnforcement { Enforce, Off }` (`:core`) + a defaulted `IRepository.permissionEnforcement`
+  member (source-compatible: defaulted getter).
+- `InMemoryRbacGrantPort` (`:memorydb`) — a no-DB grant port for samples and tests.
+- `samples/rbac` — a runnable, database-free RBAC walkthrough (`./gradlew :samples:rbac:run`)
+  demonstrating the resolver and the membership API over the in-memory port.
+- Characterization + conformance tests pinning D1–D10, including the group-only membership bypass, the
+  direct-Allow-over-group-Deny precedence case, the D10 registration pin, and the change-log exemption.
+
+### Fixed
+- **Discarded-grants tie-break** (D2, R4): `getGroupPermission`'s multi-grant branch fell through to
+  `buildDefaultAppRolePermission` whenever the `upVoteInGroup` bias was unmet, **discarding explicit
+  Allow/Deny votes into the role default**. Two Deny groups under an Allow-biased role therefore
+  resolved to whatever that default said — Allow, if the default was Allow. Replaced with a total rule
+  applied uniformly to single- and multi-grant sets: deny-override by default, `upVoteInGroup == Allow`
+  as the explicit per-role allow-override opt-in. An explicit Allow/Deny grant is never discarded — the
+  role default applies only when every applicable grant is `Default`.
+  **This changes verdicts in both directions** (see the Migration Guide): explicit votes now decide
+  where the role default used to.
+- **`defaultCrudTaskSet`-miss inversion** (D3, R3): `buildDefaultAppRolePermission` **inverted** the
+  role default — it returned **Allow** for a Deny-default role on a task *not* in `defaultCrudTaskSet`,
+  disagreeing with the direct-grant path. Replaced with allow-list semantics: a task in the set takes
+  `defaultPermission`, a miss is uncovered → Deny. (The direct grant's own `crudTaskSet` path was never
+  affected and is preserved verbatim.)
+- `fetchDirectGrant` no longer decodes a full `RoleInUser` document (D9, R13): it projects
+  `{permission, crudTaskSet}` server-side, which also hardens the shared resolver path against an
+  undecodable grant row.
+
+### Migration Guide
+- **Register the RBAC provider at boot** — the one change every enforcing MongoDB app must make:
+  ```kotlin
+  val roleInUserColl = RoleInUserColl(mongoDb)   // your IRoleInUserColl
+  MongoRbac.register(roleInUserColl)             // NEW in 5.0.0 — previously a construction side-effect
+  check(MongoRbac.isRegistered)                  // optional boot assertion
+  ```
+  Without it, `getCrudPermission` fails closed **before** any resolution — so `rootUser()` overrides and
+  every grant are bypassed, and remote CRUD is denied wholesale. This is silent at compile time.
+- **Provision roles at boot** — if you overrode `insertCrudRole` / `insertSingleActionRole` to provision
+  lazily, first touch of an unknown role now denies. Call
+  `appRoleColl.ensureRoles(crudContainers = listOf(...), singleActions = listOf("Class" to "func"))`
+  after `open()`. Re-run idempotency is the override's responsibility (find-or-insert, or tolerate the
+  unique-index duplicate-key error).
+- **Non-enforcing repositories must say so** — a repository with no permission provider wired now denies
+  *all* remote CRUD (reads included) under the default `Enforce`. Either register a provider or declare
+  `override val permissionEnforcement = PermissionEnforcement.Off`.
+- **Re-check group-based verdicts — in both directions.** Explicit group votes now decide where they
+  used to be discarded into the role default:
+  - **Allow → Deny**: two or more applicable group grants containing a Deny and no Allow (any others
+    being `Default`) under an `upVoteInGroup = Allow` role whose role default was Allow. Previously the
+    default won; now the explicit Deny does.
+  - **Deny → Allow**: two or more applicable group grants containing an Allow and no Deny (any others
+    being `Default`) under an `upVoteInGroup = Deny` role — **the default, safe bias** — whose role
+    default was Deny. Previously the default won; now the explicit Allow does.
+  - **Allow → Deny**: a `defaultCrudTaskSet` miss under a Deny-default role, which used to invert to
+    Allow. This one reaches **every** path that falls through to the role default, including
+    single-grant and zero-grant roles — the tie-break table is not the whole story.
+
+  Audit for roles that become **more** permissive, not just less.
+- **Replace raw membership counts** — a group-blind `countDocuments(RoleInUser by userId + appRoleId)`
+  should become `roleInUserColl.hasSingleActionGrant(userId, appRoleId)` (existence) or
+  `roleInUserColl.isAllowedSingleAction(userId, appRoleId)` (authorization). Pick deliberately: they are
+  not interchangeable. Engine-agnostic callers can use `RbacMembership` with their own
+  `IRbacGrantPort`.
+
 ## [4.0.0] - 2026-06-10
 
 The repository write/delete/lifecycle contract release. `IRepository`'s write, delete, and

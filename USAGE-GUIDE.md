@@ -51,7 +51,7 @@ plugins {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
 
     jvm { /* JVM target */ }
     js(IR) {
@@ -61,7 +61,7 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:4.0.0")
+                api("com.fonrouge.fslib:fullstack:6.0.0")
             }
         }
         jvmMain {
@@ -88,7 +88,7 @@ To develop and test against a local build of FSLib, publish a SNAPSHOT version t
 ./gradlew publishToMavenLocal -PSNAPSHOT
 ```
 
-The `-PSNAPSHOT` flag automatically appends `-SNAPSHOT` to the version (e.g., `4.0.0` becomes `4.0.0-SNAPSHOT`) without modifying `libs.versions.toml`. Then in your consuming project:
+The `-PSNAPSHOT` flag automatically appends `-SNAPSHOT` to the version (e.g., `6.0.0` becomes `6.0.0-SNAPSHOT`) without modifying `libs.versions.toml`. Then in your consuming project:
 
 ```kotlin
 repositories {
@@ -97,7 +97,7 @@ repositories {
 
 dependencies {
     // Use the SNAPSHOT version matching what you published
-    api("com.fonrouge.fslib:fullstack:4.0.0-SNAPSHOT")
+    api("com.fonrouge.fslib:fullstack:6.0.0-SNAPSHOT")
 }
 ```
 
@@ -333,7 +333,8 @@ class CustomerColl : Coll<Customer, OId<Customer>, CustomerFilter, OId<User>>(
     // Optional: enable change logging
     override val changeLogCollFun = { ChangeLogColl() }
 
-    // Optional: enable user repository for RBAC
+    // Required (abstract): supplies the user collection for session lookup and change-log authorship.
+    // Not an RBAC step — see section 19 for RBAC wiring.
     override val userCollFun = { UserColl() }
 }
 ```
@@ -464,7 +465,7 @@ val repo = InMemoryRepository<Task, String, TaskFilter, String>(
 
 ```kotlin
 // build.gradle.kts (jvmMain)
-implementation("com.fonrouge.fslib:memorydb:4.0.0")
+implementation("com.fonrouge.fslib:memorydb:6.0.0")
 ```
 
 See `samples/fullstack/showcase/` for a complete example using `InMemoryRepository`.
@@ -924,18 +925,36 @@ IUserGroup        — Links users to groups
 
 ### Enable RBAC
 
+Two **explicit boot steps** — neither happens by itself. Skipping them is silent at compile time and
+denies at runtime.
+
 ```kotlin
-class CustomerColl : Coll<...>(...) {
-    override val userCollFun = { UserColl() }
-}
+// Main.kt — at boot, once:
+val roleInUserColl = RoleInUserColl(mongoDb)
+MongoRbac.register(roleInUserColl)          // 1. wire the provider
+check(MongoRbac.isRegistered) { "RBAC not registered — all remote CRUD will be denied" }
+
+appRoleColl.ensureRoles(                    // 2. provision the roles
+    crudContainers = listOf(CommonCustomer),
+    singleActions = listOf("ReportService" to "exportPayroll"),
+)
 ```
+
+> **Since 5.0.0.** Constructing an `IRoleInUserColl` used to register the provider as a side effect, and
+> roles used to be created on first permission check. Both were removed. If you are upgrading from 4.x,
+> read [MIGRATION.md](MIGRATION.md#4x--500--explicit-rbac-registration) — an app that skips these steps
+> is denied **all** remote CRUD, reads included, with `rootUser()` never consulted.
 
 ### How It Works
 
-1. On first CRUD access, FSLib auto-creates an `IAppRole` for each repository class with default permissions.
-2. Each CRUD operation calls `getCrudPermission()` before proceeding.
-3. The system checks (in order): user-specific role → group role → default permission.
-4. If permission is `Deny`, the operation returns an error state.
+1. Each CRUD operation calls `getCrudPermission()` before proceeding.
+2. If the repository declares `permissionEnforcement = PermissionEnforcement.Off`, it is allowed
+   outright. Otherwise, with no provider registered it **fails closed** — denied, before any resolution.
+3. Otherwise `RbacResolver` resolves the verdict, in order: root short-circuit (`rootUser()`) →
+   **direct user grant** (if one exists, it decides and groups are *not* consulted) → group grants,
+   combined under the role's `upVoteInGroup` bias → the role default.
+4. An unprovisioned role denies — resolution never writes.
+5. If the verdict is `Deny`, the operation returns an error state.
 
 ### Permission Types
 
@@ -944,6 +963,21 @@ class CustomerColl : Coll<...>(...) {
 | `Allow` | Explicitly grants access |
 | `Deny` | Explicitly blocks access |
 | `Default` | Falls back to the role's `defaultPermission` |
+
+An explicit `Allow`/`Deny` grant is never discarded — the role default applies only when every
+applicable grant is `Default`.
+
+### Group-aware membership
+
+For a `(userId, appRoleId)` pair, never count `RoleInUser` rows directly — that is group-blind and
+wrongly denies a user whose role comes only through a group:
+
+```kotlin
+roleInUserColl.hasSingleActionGrant(userId, appRoleId)   // existence: direct OR group
+roleInUserColl.isAllowedSingleAction(userId, appRoleId)  // authorization: full resolution
+```
+
+Run `./gradlew :samples:rbac:run` for a database-free walkthrough.
 
 ---
 
@@ -1318,7 +1352,7 @@ fun Application.main() {
     }
 
     // Build and serve the API contract
-    val contract = RouteContract(version = "4.0.0")
+    val contract = RouteContract(version = "1.0.0")   // your application's API version, not fsLib's
     contract.register(TaskServiceManager, "ITaskService")
 
     routing {

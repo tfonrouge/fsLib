@@ -18,8 +18,8 @@ import com.fonrouge.fullStack.repository.PermissionRegistry
  * is resolved.
  *
  * Fail-closed is preserved (D6): with no [register] call the provider stays `null`, and each repository's
- * `permissionEnforcement` governs the verdict (`Enforce` ⇒ deny on a remote write; `Off` ⇒ allowed) — never
- * a silent allow-all.
+ * `permissionEnforcement` governs the verdict (`Enforce` ⇒ deny every remote (`call != null`) CRUD
+ * operation — reads and lists included, not only writes; `Off` ⇒ allowed) — never a silent allow-all.
  */
 object MongoRbac {
 

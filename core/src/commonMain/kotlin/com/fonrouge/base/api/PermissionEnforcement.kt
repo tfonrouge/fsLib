@@ -9,9 +9,11 @@ import kotlinx.serialization.Serializable
  *
  * This is the per-repository "permission posture" declaration (RBAC blueprint D6). It is read at the
  * permission-check sites to decide the **safe default when no resolver is wired**:
- * - [Enforce] (the default): when no permission provider / RBAC backend is configured, a remote
- *   (`call != null`) write **fails closed** (denies) rather than silently allowing — closing the
- *   former fail-open hole.
+ * - [Enforce] (the default): when no permission provider / RBAC backend is configured, **every** remote
+ *   (`call != null`) CRUD operation **fails closed** (denies) rather than silently allowing — closing
+ *   the former fail-open hole. This covers reads and lists, not only writes: `apiList` and every
+ *   `ApiItem.Query` run the same gate, so an unconfigured enforcing repository is fully inaccessible
+ *   rather than read-only.
  * - [Off]: the repository is **explicitly non-enforcing** (e.g. an in-memory engine used for samples
  *   and tests, or a deployment whose authorization lives in a layer above). Permission checks return
  *   "allowed", even if a provider happens to be registered.

@@ -59,7 +59,7 @@ abstract class IAppRoleColl<T : IAppRole<ID>, ID : Any, FILT : IApiFilter<*>, UI
      * to [insertCrudRole] / [insertSingleActionRole].
      *
      * Call once at boot — e.g. after [open] — to replace the former *lazy* "provision on first permission
-     * check" behavior, removed in 4.x (D4, side-effect-free resolution): **an unprovisioned role now
+     * check" behavior, removed in 5.0.0 (D4, side-effect-free resolution): **an unprovisioned role now
      * denies** rather than self-provisioning. The in-tree primitive defaults are no-ops that return
      * `isOk=false`, so this is effective only once a subclass implements them — calling it on an
      * unimplemented base reports failure for every requested role.

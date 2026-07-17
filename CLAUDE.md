@@ -8,6 +8,10 @@ FSLib is a Kotlin Multiplatform library (`com.fonrouge.fsLib`) for building full
 
 ## Build Commands
 
+**The Gradle daemon must run on JDK 25** (since 6.0.0 — KVision 9.6.0's plugin requires it). If JDK 25
+isn't the default, prefix every invocation below with
+`-Dorg.gradle.java.home="$(brew --prefix openjdk@25)/libexec/openjdk.jdk/Contents/Home"`.
+
 ```bash
 ./gradlew build                    # Build all modules
 ./gradlew :core:build              # Build the core module
@@ -55,7 +59,7 @@ memorydb            → fullstack → core
   - **jsMain**: View system — `View`, `ViewItem`, `ViewList`, `ViewDataContainer` for rendering CRUD views (forms use KVision's `FormPanel<T>` directly — `ViewFormPanel` was removed in 3.2.0). `ConfigView`/`ConfigViewItem`/`ConfigViewList`/`ConfigViewContainer` for declarative view configuration. `registerEntityViews()` DSL for declarative view registration (sets service managers, creates/references configs, and tracks default view). Tabulator wrappers (`TabulatorViewList`, `fsTabulator`) for data grids. Layout helpers (`formRow`, `formColumn`, `toolBarList`, etc.). `ViewRegistry` — centralized registry for view configurations and RPC service managers. Full KVision UI stack (Bootstrap, FontAwesome, Tabulator, etc.). Also includes UI utility helpers (`toast`, `buttonMenu`, form control helpers, etc.).
   - **commonMain**: Shared RPC service interfaces, API definitions. Source packages: `com.fonrouge.fullStack.*`.
 
-- **`:mongodb`** — MongoDB database engine (JVM-only). `Coll<T: BaseDoc>` — MongoDB implementation of `IRepository` providing aggregation pipelines, lookups, filtering, change logging, and role-based access (built on KMongo coroutine driver). `MongoDb` — database connection management. `FieldPath` — nested property path builder. Registers `MongoRolePermissionProvider` with `PermissionRegistry` for cross-engine permission checks.
+- **`:mongodb`** — MongoDB database engine (JVM-only). `Coll<T: BaseDoc>` — MongoDB implementation of `IRepository` providing aggregation pipelines, lookups, filtering, change logging, and role-based access (built on KMongo coroutine driver). `MongoDb` — database connection management. `FieldPath` — nested property path builder. `MongoRbac` — the **explicit** boot registrar (`register` / `unregister` / `isRegistered`) that wires `MongoRolePermissionProvider` into `PermissionRegistry` for cross-engine permission checks. Registration is **not** automatic (since 5.0.0, D10): an app must call `MongoRbac.register(roleInUserColl)` once at boot, or every repository at the default `permissionEnforcement = Enforce` fails closed and denies all remote CRUD — reads included — before resolution, so `rootUser()` is never reached.
 
 - **`:sql`** — SQL database engine (JVM-only). `SqlRepository` — SQL implementation of `IRepository` using Exposed for relational database access. `SqlDatabase` — SQL connection management with MSSQL/jTDS JDBC drivers. Uses `PermissionRegistry` for role-based access control.
 

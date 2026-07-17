@@ -204,8 +204,10 @@ interface IRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any
 
     /**
      * This repository's permission posture (RBAC blueprint D6). The default is
-     * [PermissionEnforcement.Enforce] — when no permission resolver is configured, a remote
-     * (`call != null`) write **fails closed** rather than silently allowing. Override with
+     * [PermissionEnforcement.Enforce] — when no permission resolver is configured, every remote
+     * (`call != null`) CRUD operation **fails closed** rather than silently allowing; that covers reads
+     * and lists, not only writes, so an unconfigured enforcing repository is fully inaccessible
+     * remotely rather than read-only. Override with
      * [PermissionEnforcement.Off] to declare an explicitly non-enforcing repository/engine (e.g.
      * in-memory for samples/tests, or a deployment whose authorization lives above this layer).
      *

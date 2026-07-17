@@ -335,7 +335,9 @@ abstract class SqlRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UI
                 allowApiCrud(apiItem).also { if (it.hasError) return it.asItemState() }
                 // CONTRACT.md I6: enforce the per-action CRUD permission on the remote path
                 // (call != null), matching the Query branch above; the trusted service tier
-                // (call == null) is a no-op, as is an unconfigured PermissionRegistry.
+                // (call == null) is a no-op. An unconfigured PermissionRegistry is NOT a no-op
+                // (D6, since 5.0.0): this repository inherits the default permissionEnforcement =
+                // Enforce and therefore fails CLOSED until a provider is registered.
                 call?.let {
                     getCrudPermission(call, apiItem.crudTask)
                         .also { if (it.state == State.Error) return ItemState(it) }

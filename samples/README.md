@@ -58,7 +58,23 @@ Server-Side Rendering samples built with Ktor HTML builder (JVM-only, no JS fron
 
 Then open [http://localhost:8080](http://localhost:8080) in your browser.
 
+## RBAC Walkthrough
+
+A console sample (JVM-only, no web server) that walks through permission resolution and the membership
+API over the in-memory grant port.
+
+| Sample | Description |
+|--------|-------------|
+| **rbac** | Runnable RBAC walkthrough: direct-grant precedence, group tie-break, role defaults, and the group-aware `hasSingleActionGrant` / `isAllowedSingleAction` split — with no database engine. |
+
+```bash
+./gradlew :samples:rbac:run
+```
+
+Output goes to the console. See [samples/rbac/README.md](rbac/README.md) for what each scenario
+demonstrates.
+
 ## Prerequisites
 
-- JDK 21+
+- JDK 25+ (since fsLib 6.0.0 — see [CONTRIBUTING.md](../CONTRIBUTING.md#development-setup))
 - No database required — all samples use in-memory storage.

@@ -47,6 +47,7 @@ roleInUserColl.hasSingleActionGrant(userId, appRoleId)     // existence (direct 
 roleInUserColl.isAllowedSingleAction(userId, appRoleId)    // effective authorization (the resolver)
 ```
 
-With no `MongoRbac.register(...)` call, an enforcing repository **fails closed** on a protected write
-(`permissionEnforcement = Enforce`, the default) — never a silent allow-all (RBAC D6). Change-log
-collections are exempt by declaring `permissionEnforcement = Off`.
+With no `MongoRbac.register(...)` call, an enforcing repository **fails closed** on every remote CRUD
+operation — reads and lists included, not just writes (`permissionEnforcement = Enforce`, the default) —
+never a silent allow-all (RBAC D6). Change-log collections are exempt by declaring
+`permissionEnforcement = Off`.

@@ -1,9 +1,187 @@
 # Migration Guide
 
-## Entity Registration DSL
+Version-scoped upgrade notes, listed **in the order you should apply them**. Each section lists what a
+**consuming application** must change to move onto that release. `CHANGELOG.md` carries the full change
+list and the rationale.
 
-This release introduces three convenience APIs that reduce per-entity boilerplate:
-`simpleContainer()`, `StandardCrudService`, and `registerEntityViews()`.
+| Upgrade | Required work |
+|---------|---------------|
+| [→ 3.1.0](#entity-registration-dsl-added-in-310--opt-in) | Nothing — the Entity Registration DSL is opt-in. |
+| 3.x → 4.0.0 | Call `open()` at boot (constructors no longer build indexes), plus hook-order and `onQueryDelete` changes. No section here — see the [4.0.0 Migration Guide in CHANGELOG.md](CHANGELOG.md). |
+| [4.x → 5.0.0](#4x--500--explicit-rbac-registration) | **Call `MongoRbac.register(...)` at boot**, provision roles explicitly, or declare enforcement off. Skipping this compiles fine and denies at runtime. |
+| [5.x → 6.0.0](#5x--600--kotlin-24--java-25) | Build with Kotlin 2.4, **deploy on Java 25**. No source changes. |
+
+Skipping releases? Apply **every** section between your version and your target — a migration is not
+optional just because you skipped the release that introduced it.
+
+---
+
+## 4.x → 5.0.0 — explicit RBAC registration
+
+**Breaking, and silent at compile time.** 5.0.0 removed three implicit RBAC behaviors. An application
+that does not adopt the replacements still compiles, still starts, and then **denies**.
+
+| Symptom after upgrading | Cause | Fix |
+|-------------------------|-------|-----|
+| Every remote CRUD op denied — reads and lists too — for every user, including one your `rootUser()` override should allow | No provider registered; the fail-closed gate runs **before** resolution, so `rootUser()` is never consulted | [1. Register at boot](#1-register-the-rbac-provider-at-boot) |
+| One role denies; the rest work | The role was never provisioned — roles are no longer created on first check | [2. Provision roles at boot](#2-provision-roles-at-boot) |
+| A repository with no RBAC wiring at all now denies everything | Default is `Enforce`, which fails closed instead of allowing | [3. Declare non-enforcing repos](#3-declare-non-enforcing-repositories) |
+| A group-based verdict flips — in **either** direction | Explicit group votes now decide where they used to be discarded into the role default | [4. Re-check group verdicts](#4-re-check-group-based-verdicts) |
+
+### 1. Register the RBAC provider at boot
+
+Constructing an `IRoleInUserColl` used to wire the process RBAC state as a side effect of
+`Coll.init`. That side effect is gone (LEDGER D10) — registration is now an explicit, ordered,
+app-owned boot step.
+
+**Before (4.x)** — implicit; merely constructing the collection registered it:
+
+```kotlin
+val roleInUserColl = RoleInUserColl(mongoDb)
+// ...RBAC was live from here, invisibly.
+```
+
+**After (5.0.0+):**
+
+```kotlin
+import com.fonrouge.fullStack.mongoDb.MongoRbac
+
+val roleInUserColl = RoleInUserColl(mongoDb)
+MongoRbac.register(roleInUserColl)      // ← the one line every enforcing app must add
+
+check(MongoRbac.isRegistered) { "RBAC provider not registered — all remote CRUD will be denied" }
+```
+
+Call it **once**, at boot, after constructing the collection and before serving traffic. Last call
+wins. `MongoRbac.unregister()` exists for test isolation.
+
+> **Why this is worth an explicit assertion:** with no provider registered, `getCrudPermission` fails
+> closed *before* it reaches the resolver. That is upstream of everything — the root short-circuit,
+> direct grants, group grants. A superadmin `rootUser()` override will look broken, but the hook is
+> intact and never reached. `MongoRbac.isRegistered` distinguishes the two in one line.
+
+### 2. Provision roles at boot
+
+Permission resolution is now side-effect-free (D4): a **read-shaped permission check no longer writes**.
+An unprovisioned role denies instead of self-inserting.
+
+If you overrode `insertCrudRole` / `insertSingleActionRole` to provision lazily, replace that reliance
+with an explicit call after `open()`:
+
+```kotlin
+val state = appRoleColl.ensureRoles(
+    crudContainers = listOf(CommonTask, CommonContact),        // roles of CRUD type
+    singleActions = listOf("ReportService" to "exportPayroll"), // (classOwner, funcName) pairs
+)
+check(!state.hasError) { state.msgError ?: "role provisioning failed" }
+```
+
+`ensureRoles` aggregates its primitives' results — the returned `SimpleState` is error-free only if
+**every** role was provisioned, else it carries an error naming the ones that were not. (Read the result
+via `hasError` or `state`; `isOk` is a constructor parameter, not a readable property.) It delegates to your `insert*` overrides, so **re-run
+idempotency is your responsibility**: find-or-insert, or tolerate the unique-index duplicate-key error.
+The in-tree primitives are inert stubs, so this is effective only once a subclass implements them.
+
+### 3. Declare non-enforcing repositories
+
+`IRepository.permissionEnforcement` defaults to `Enforce`, and `Enforce` with no provider **denies all**
+remote (`call != null`) CRUD — **reads and lists included, not just writes**; `apiList` and every
+`ApiItem.Query` run the same gate. An unregistered enforcing repository goes fully dark. 4.x silently
+allowed everything.
+
+```kotlin
+override val permissionEnforcement = PermissionEnforcement.Off
+```
+
+Use this for repositories that are deliberately not permission-governed. `InMemoryRepository` and
+`IChangeLogColl` already declare it (the change-log exemption is now declarative rather than a
+dispatch-time special case).
+
+> **Not using `:mongodb`?** This is the step that affects you most. `SqlRepository` inherits the default
+> `Enforce`, and 4.x let it silently allow everything when no provider was wired — so a SQL-only app
+> that never configured RBAC allowed all remote CRUD on 4.x and **denies all of it** on 5.0.0. The only
+> `IRolePermissionProvider` fsLib ships lives in `:mongodb` and is wired by `MongoRbac.register`; there
+> is **no native SQL RBAC backend yet** (no RoleInUser/RoleInGroup/UserGroup tables). Your options are
+> to declare `Off`, or to implement `IRolePermissionProvider` yourself and assign it:
+> ```kotlin
+> PermissionRegistry.rolePermissionProvider = MyProvider()
+> ```
+
+### 4. Re-check group-based verdicts
+
+Group resolution used to **discard explicit votes into the role default** whenever the `upVoteInGroup`
+bias wasn't matched. It now decides on the votes themselves — the role default applies only when every
+applicable grant is `Default`.
+
+> **This moves verdicts in both directions.** Auditing only for newly-denied roles will miss the case
+> where a role became **more permissive**.
+
+| Configuration (2+ applicable group grants) | Before | After |
+|---|---|---|
+| **Deny present, no Allow** (others may be `Default`), `upVoteInGroup = Allow`, role default **Allow** | Allow *(denies discarded)* | **Deny** |
+| **Allow present, no Deny** (others may be `Default`), `upVoteInGroup = Deny` *(the default bias)*, role default **Deny** | Deny *(allow discarded)* | **Allow** ⚠️ |
+| Every applicable grant is `Default` | role default | role default — *the rule is unchanged, but the default's own value may differ; see below* |
+
+The **tie-break rule** is unchanged for a single applicable grant: an explicit Allow/Deny still decides,
+and a `Default` grant still falls through to the role default. So the table above does not apply to
+single-grant roles — but they are **not** exempt from the change below.
+
+### The role default itself no longer inverts
+
+`defaultCrudTaskSet` is now an allow-list. A Deny-default role on a task *not* in the set used to
+resolve to **Allow**; it now resolves to **Deny**. (A direct grant's own `crudTaskSet` is a different
+field on a different path, and is unchanged.)
+
+This reaches **every** path that falls through to the role default — including a single `Default` grant
+and no applicable grant at all. Concretely: a CrudTask role with `defaultPermission = Deny` and
+`defaultCrudTaskSet = {Read}`, where the user's only group grant is `Default` with
+`crudTaskSet = {Update}`, resolved `Update` to **Allow** in 4.x and resolves it to **Deny** now. Audit
+single-grant and zero-grant roles for this case too — the multi-grant table is not the whole story.
+
+Audit both directions. The ⚠️ row is the one that grants access you did not previously grant.
+
+### 5. Replace group-blind membership counts
+
+If you queried membership directly — `countDocuments(RoleInUser by userId + appRoleId)` — that is
+**group-blind**: a role held only through a group has no direct row, so the user was wrongly denied.
+Use the group-aware API instead, and pick the operation deliberately (existence ≠ authorization):
+
+```kotlin
+// Does an edge exist at all — direct OR via a group? (An explicit Deny edge still returns true.)
+roleInUserColl.hasSingleActionGrant(userId, appRoleId)
+
+// Is the user actually allowed? Full precedence resolution — a direct Allow beats a group Deny.
+roleInUserColl.isAllowedSingleAction(userId, appRoleId)
+```
+
+Engine-agnostic callers can use `RbacMembership` with their own `IRbacGrantPort`.
+`./gradlew :samples:rbac:run` is a runnable, database-free walkthrough of both.
+
+---
+
+## 5.x → 6.0.0 — Kotlin 2.4 + Java 25
+
+**Toolchain-only.** No fsLib API changed; nothing to rewrite.
+
+1. **Build with Kotlin 2.4** (KVision 9.6.0 requires it).
+2. **Deploy on Java 25.** This is not optional and not just a build setting: KVision 9.6.0's runtime
+   artifacts — `kvision-common-remote` date types, consumed by `:core` — are Java 25 bytecode. An
+   earlier JRE fails at class-load:
+   ```
+   UnsupportedClassVersionError: io/kvision/types/DateKt ... class file version 69.0
+   ```
+3. Set `jvmToolchain(25)` in your build. Mixing targets fails the compile with
+   *"Cannot inline bytecode built with JVM target 25 into bytecode that is being built with JVM target 21"*.
+
+If Java 25 is not available in your deployment, **stay on 5.0.0** — it carries identical library
+behavior on KVision 9.5.0 / Kotlin 2.3.20 / Java 21.
+
+---
+
+## Entity Registration DSL (added in 3.1.0 — opt-in)
+
+Three convenience APIs that reduce per-entity boilerplate: `simpleContainer()`, `StandardCrudService`,
+and `registerEntityViews()`.
 
 All three are **opt-in** — existing code continues to work without changes.
 
@@ -254,7 +432,7 @@ See `samples/fullstack/showcase/.../ViewHome.kt` for a complete example.
 
 ---
 
-### Migration checklist
+### Entity Registration DSL checklist
 
 - [ ] Replace `ICommonContainer` object declarations with `simpleContainer()` /
       `simpleContainerWithFilter()` calls
