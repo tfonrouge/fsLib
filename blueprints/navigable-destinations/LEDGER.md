@@ -195,12 +195,33 @@ conventional "default" applies only when nothing was passed.
   widen" pattern.
 - **(c) Both, explicitly declared** (`default` vs `scope`).
 
-**Recommendation: (c).** They are different features and the difference is user-visible. Whichever is
-chosen, T1 and T2 depend on it: only a filter the `ConfigView` declares is readable without rendering
-(C8 shows `apiFilterInit()` does not help).
+**Both semantics already exist in mppArel — this is not a hypothetical (measured 2026-07-16, ROAR).**
 
-**Falsification.** If no consumer ever needs a replaceable default, (c) is over-built and (b) is the
-whole feature.
+| Semantics | Where | How |
+|---|---|---|
+| **Imposed scope** | `ViewCapturaQA.pageListBody():90-93` | rewrites even an explicit `soloPendientesQa=false` to `true` |
+| **Replaceable default** | `ViewListMonitoringData.apiFilterInit():150-156`, `ViewListAnalisisEficOrdenTrabajo:58-62` | `apiFilter.copy(fecha1 = apiFilter.fecha1 ?: …)` — the `?:` fills **only when absent**, preserving a value that arrived by URL |
+
+*(I briefly recommended "scope only" on the premise that nobody needed a replaceable default. The
+premise was false and unverified — both live in the app today. Recommendation restored to (c).)*
+
+**Recommendation: (c) — both, explicitly declared.** They are different features, the difference is
+user-visible, and both are already in use. Modeling scope as default is the regression named above;
+modeling default as scope would freeze `MonitoringData`'s date filter against the user.
+
+**Reframed, which narrows the real cost (ROAR):** the question is *not whether* replaceable behavior
+exists — it does — but **whether it is elevated to declarable metadata on the `ConfigView`**. Those are
+different asks, and only one is urgent:
+
+- **Scope must be elevated.** T1 fails otherwise: `ViewCapturaQA`'s filter is unreadable without
+  rendering, so its destination cannot state where it goes.
+- **Defaults need not be, and may not even be expressible as data.** Both live defaults are
+  **computed per opening** (`Date().toJodaLocalDate.minusWeeks(1)`), not constants. A `ConfigView`
+  field would have to take a **lambda**, not a value — a materially bigger surface than scope needs.
+  So "declare both" does not mean "declare both the same way".
+
+**Falsification.** If elevating scope turns out to require the same lambda-shaped surface as defaults,
+the two collapse into one feature and (c)'s distinction buys nothing.
 
 ## D5 — The help navigation bridge
 
