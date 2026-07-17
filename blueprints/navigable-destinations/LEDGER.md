@@ -4,8 +4,8 @@ Decisions with rationale and falsification conditions. Both-directions disciplin
 stays written down, so it is not silently re-proposed later (rejection amnesia), and an approved one
 stays falsifiable (approval calcification).
 
-**Status: D1 LOCKED (2026-07-17, option (b)). D2–D5 + D1-sub + D3b OPEN.** The spike that produced the
-evidence is complete; the remaining decisions are the owner's.
+**Status: D1 + D1-sub LOCKED (2026-07-17). D2–D5 + D3b OPEN.** The spike that produced the evidence is
+complete; the remaining decisions are the owner's.
 
 ## Recommendations at a glance
 
@@ -17,7 +17,7 @@ evidence is complete; the remaining decisions are the owner's.
 | Decision | Question | Status / recommendation |
 |---|---|---|
 | **D1** | `baseUrl` derivation | ✅ **LOCKED 2026-07-17 — (b)**: authority is `configView.url`, never a class-name assumption. (a) *unify* refused (would move app root); (c) *assert* shipped as P1.1. |
-| **D1-sub** | reject duplicate `baseUrl` at insertion? | *(rec, open)* **Yes.** The only attack the consumer is structurally blind to (a collision's loser leaves no runtime trace), and its trigger — two `ConfigViewList` over one view — is exactly what T2 enables. |
+| **D1-sub** | reject duplicate `baseUrl` at insertion? | ✅ **LOCKED 2026-07-17 — YES**: reject at insertion across all three registry maps (closes overwrite-within-family + shadow-across-families). Fail-fast at startup ⇒ **rollout gated on sweeping mppErsaPack for an existing collision first**. SemVer major. |
 | **D2** | what is an `ICommonContainer`? | **(a)** accept the RBAC-identity + labels overload and **document it hard**. (b) split = a data migration of `classOwner` across every consumer's RBAC tables, disproportionate for a naming concern. |
 | **D3** | where does the destination label live? | **(a)** on the destination, default = `configView.label`. **No `shortLabel`** until rendering proves the card needs one — adding it up front re-introduces two labels that can drift. |
 | **D3b** | which `ViewItem` actions are catalog destinations? | **`Create` in** (natural palette query), **`Delete` out and in writing** (a one-keystroke path to a destruction form is not a search box's job; nothing reaches Delete by URL today). |
@@ -128,6 +128,21 @@ place the property can be enforced at all.** It is the same property as D1's —
 its meaning — and (1) is the one attack the consumer is structurally blind to. Note the collision is
 not exotic: two `ConfigViewList`s over the same view class is exactly what "a second destination on
 the same view, differently filtered" looks like, which is the case T2 exists for.
+
+**DECISION (owner, 2026-07-17): LOCKED — D1-sub = YES.** `ConfigView` registration **rejects a
+duplicate `baseUrl` at insertion** (loud error, not silent overwrite). The check spans **all three
+registry maps** (`configViewMap` / `configViewItemMap` / `configViewListMap`), so it closes **both**
+mechanisms above — overwrite-within-a-family (1) *and* shadow-across-families (2). This is the total,
+at-source fix the consumer-side tests can only approximate after the fact; on it landing, mppArel's
+two consumer-side collision tests become belt-and-suspenders, not the primary guard.
+
+**Implementation caveat (must gate the PLAN step, not the lock):** the reject is **fail-fast at
+startup** — any consumer that *today* silently overwrites on a duplicate `baseUrl` would fail to boot
+after upgrading. **mppArel is clean** (measured 2026-07-16: 15/79/102 declared = registered, zero
+collision). **mppErsaPack is NOT yet verified** — the second known consumer must be swept for an
+existing collision *before* this ships, or the same fail-fast that protects them breaks their build.
+The decision is locked; the rollout is conditional on that sweep. SemVer: **major** (a previously
+tolerated call now throws).
 
 ## D2 — What is an `ICommonContainer`?
 
