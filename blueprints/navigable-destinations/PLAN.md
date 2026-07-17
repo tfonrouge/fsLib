@@ -4,7 +4,8 @@
 > downstream app changes. **BREAKING** = moves a URL, changes a rendered label, or alters what a
 > destination shows (each cites its LEDGER decision).
 
-**Nothing here is started.** D1–D5 are OPEN; Phase 2 onward is gated on locking them.
+**D1 LOCKED (2026-07-17, option (b)); D2–D5 + D1-sub + D3b still OPEN.** No Phase-2/3 code is started;
+those phases remain gated on locking the rest.
 
 ## Dependency graph (must-precede)
 
@@ -49,8 +50,9 @@ test that needs a change to go green is a Phase-2 test.
 
 ## Decision gate
 
-**Lock D1–D5 before any Phase-2 or Phase-3 code.** P1.1 already fed D1 (194/196 derive; the 2
-exceptions are deliberate; option (a) refuted — it would move the app root); P1.3's outcome feeds
+**Lock the remaining decisions before any Phase-2 or Phase-3 code.** **D1 is LOCKED (2026-07-17,
+(b))** — P1.1 fed it (194/196 derive; the 2 exceptions deliberate; (a) refuted, would move the app
+root). Still to lock: D2–D5, D1-sub, D3b. P1.3's outcome feeds
 D4. Do not start P2 with D4 open: modeling an imposed scope as a default is a **user-visible
 regression** (T4), and it is the kind of thing that is cheap to decide now and expensive to unpick
 after two consumers depend on it.

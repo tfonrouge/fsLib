@@ -4,20 +4,20 @@ Decisions with rationale and falsification conditions. Both-directions disciplin
 stays written down, so it is not silently re-proposed later (rejection amnesia), and an approved one
 stays falsifiable (approval calcification).
 
-**Status: D1–D5 are OPEN.** Nothing is locked. The spike that produced the evidence is complete; the
-decisions are the owner's.
+**Status: D1 LOCKED (2026-07-17, option (b)). D2–D5 + D1-sub + D3b OPEN.** The spike that produced the
+evidence is complete; the remaining decisions are the owner's.
 
 ## Recommendations at a glance
 
 > **Digest, not authority.** Each row condenses the `Recommendation:` line inside the decision it
 > points to; the decision body is the source of truth (rationale, options, falsification). If the two
-> ever disagree, the body wins and this table is stale. Written by the assistant; **none is locked** —
-> the owner decides.
+> ever disagree, the body wins and this table is stale. Written by the assistant; the owner decides.
+> **D1 is now LOCKED; the rest remain the recommendation only.**
 
-| Decision | Question | Assistant's recommendation |
+| Decision | Question | Status / recommendation |
 |---|---|---|
-| **D1** | `baseUrl` derivation | Write rule **(b)**: authority is `configView.url`, never a class-name assumption. (a) *unify* is **refuted** — it would move the app root `#/` → `#/ViewHome`. The (c) *assert* half already shipped (P1.1). |
-| **D1-sub** | reject duplicate `baseUrl` at insertion? | **Yes.** The only attack the consumer is structurally blind to (a collision's loser leaves no runtime trace), and its trigger — two `ConfigViewList` over one view — is exactly what T2 enables. |
+| **D1** | `baseUrl` derivation | ✅ **LOCKED 2026-07-17 — (b)**: authority is `configView.url`, never a class-name assumption. (a) *unify* refused (would move app root); (c) *assert* shipped as P1.1. |
+| **D1-sub** | reject duplicate `baseUrl` at insertion? | *(rec, open)* **Yes.** The only attack the consumer is structurally blind to (a collision's loser leaves no runtime trace), and its trigger — two `ConfigViewList` over one view — is exactly what T2 enables. |
 | **D2** | what is an `ICommonContainer`? | **(a)** accept the RBAC-identity + labels overload and **document it hard**. (b) split = a data migration of `classOwner` across every consumer's RBAC tables, disproportionate for a naming concern. |
 | **D3** | where does the destination label live? | **(a)** on the destination, default = `configView.label`. **No `shortLabel`** until rendering proves the card needs one — adding it up front re-introduces two labels that can drift. |
 | **D3b** | which `ViewItem` actions are catalog destinations? | **`Create` in** (natural palette query), **`Delete` out and in writing** (a one-keystroke path to a destruction form is not a search box's job; nothing reaches Delete by URL today). |
@@ -42,7 +42,18 @@ claims were falsified by verification rather than by reasoning:
 A `CONTRACT.md` written before that spike would have inherited all five. **Layer C is characterization,
 not design** — and it is the part of this blueprint that is already trustworthy.
 
-## D1 — `baseUrl` derivation: unify, or declare the divergence?
+## D1 — `baseUrl` derivation: unify, or declare the divergence? (**LOCKED 2026-07-17: option (b)**)
+
+**DECISION (owner, 2026-07-17): LOCKED on (b).** The authority for a destination's URL is
+`configView.url` — never an assumption inferred from a view's class name. Option (a) *unify* is
+**refused** (it would move the app root `#/` → `#/ViewHome`); the (c) *assert* half already shipped as
+P1.1 (`BaseUrlCharacterizationTest`), which turns any future URL move red. The two deliberate
+exceptions (`ViewHome` → `""`, `ViewBolsaTrabajo` → `"bolsaDeTrabajo"`) stand as-is.
+
+**What this binds going forward:** documentation, help-docs and any CI link-check cite the **URL**
+(`#/…`), not the class name; P4.3's check compares full URLs against declared destinations, never
+resolves a class name. **Still OPEN:** the D1-sub — whether fsLib *rejects a duplicate `baseUrl` at
+insertion* — is a separate mechanism (a URL being *taken*, not *derived*) and was **not** locked here.
 
 **Question.** `ConfigViewList`/`ConfigViewItem` guarantee `baseUrl == viewKClass.simpleName`; plain
 `ConfigView` derives `"View" + commonContainer.name` and merely *happens* to match (C2). Once
