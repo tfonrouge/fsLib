@@ -140,6 +140,49 @@ actually breaks.
 **Falsification.** If more than a handful of the ~92 destinations need overrides, the default is not
 carrying its weight and the container labels themselves are wrong — a different, larger fix.
 
+## D3b — Which `ViewItem` actions are catalog destinations? (OPEN, raised by owner 2026-07-16)
+
+**Question.** A data model has exactly two views: `ViewList` (the listing) and `ViewItem` (the
+Create/Read/Update form). The route supports **four** actions — `Create`, `Read`, `Update`, **and
+`Delete`** (C6). The spike's prototype models only `Read`/`Update`, so:
+
+- a **"create an OT"** destination is **unrepresentable**, though it is exactly what someone would
+  type into a palette (`ViewHome` has no Create entry today only because creation is reached from a
+  list's button);
+- **`Delete` is absent by oversight, not by decision** — I enumerated the actions I had happened to
+  see rather than reading the rule, twice in a row.
+
+**Two different questions, do not collapse them:** *what the route supports* (a characterized fact,
+C6) versus *what a catalog may offer* (this decision). A palette that never offers a direct
+destruction is a perfectly good policy — but it must be **chosen and written**, not the accidental
+result of nobody noticing `urlDelete` exists.
+
+**It is not a third enum value.** The prototype's `ItemFijo` requires `val id: ID` (non-null) while
+`navigateToQueryCreate` takes `id: ID? = null`: adding `ItemAction.Create` would either leave the
+valid id-less state unrepresentable or force an invented id. `Create` carries **different data**, so
+it is a different variant — the same "make illegal states unrepresentable" reasoning that produced
+`ItemAction` in the first place, applied one level further.
+
+**Trap to write into whatever ships (F14/C6b).** `urlCreate` omits the filter; the query path
+serializes it. Declaring `urlCreate` as the destination's URL while launching via
+`navigateToQueryCreate(apiFilter = …)` makes the two disagree — and a documentation CI check would
+pass on a URL that goes somewhere else. Whatever variant is chosen must build its URL the way it
+navigates.
+
+**Note it does *not* break T2:** two contextualized creates differ by their serialized `apiFilter`, so
+`key = targetUrl` still distinguishes them (an earlier claim that Create collapses keys was wrong).
+
+**Recommendation (owner decides).** `Create` in — it is the natural palette query. `Delete` **out**,
+explicitly: a one-keystroke path to a destruction form is a hazard a search box should not create, and
+nothing in the app reaches Delete by URL today. Writing "out" is the point; leaving it unmentioned is
+how it comes back.
+
+**Falsification.** If no consumer ever wants a create destination reachable other than from a list's
+button, this is over-built and `ViewItem` destinations are Read/Update-only. Conversely, if a
+legitimate flow ever needs a Delete-by-URL destination (a confirmation link in a notification, say),
+the "out" policy is wrong and the exclusion must move from the catalog to the palette's filter — the
+mechanism would still be there.
+
 ## D4 — Is a `ConfigView`-level filter a default or an imposed scope?
 
 **Question.** C7 shows `ViewCapturaQA` **imposes**: it rewrites an explicit `false` to `true`. A

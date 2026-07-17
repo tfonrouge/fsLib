@@ -62,13 +62,38 @@ already render `ConfigViewItemX.label`; only "Datos Generales" hardcodes a strin
 
 ### C6 — A destination is view **plus parameters**; launchability is not a view kind
 
-- `ViewItem` **without** id → *"no CRUD action"*, an empty shell (verified: `#/ViewItemCavidadMolde`).
-- `ViewItem` **with a fixed id** → a legitimate destination. `ViewHome` has 4: three
-  `navigateToQueryRead(id = …)` and one `navigateToQueryUpdate(id = "1")`.
+There are exactly two view kinds per data model: **`ViewList`** (the listing) and **`ViewItem`** (the
+Create / Read / Update form). A `ViewItem` is launchable **when its URL carries a valid action**:
+
+| URL | Needs id? | Result |
+|---|---|---|
+| `#/ViewItemCavidadMolde` | — | ❌ *"no CRUD action"* — an empty shell |
+| `?action=Create` | **no** | ✅ renders the form (browser-verified) |
+| `?action=Read&id=…` | yes | ✅ the 3 `navigateToQueryRead` destinations in `ViewHome` |
+| `?action=Update&id=…` | yes | ✅ the 1 `navigateToQueryUpdate` destination (CFDI) |
+| `?action=Delete&id=…` | yes | ✅ **navigable** — `urlDelete(id)` (`ConfigViewItem.kt:333`), `apiItemToParamList` serializes `ApiItem.Query.Delete` (`:153`), and `ViewItem` branches on `CrudTask.Delete` into its confirmation flow (`ViewItem.kt:631`) |
+
+**The dead-end is the missing *action*, not the missing id** — an earlier version of this contract said
+the opposite. `Read`/`Update`/`Delete` need an id; **`Create` does not**
+(`navigateToQueryCreate(id: ID? = null)`).
+
+**All four actions are supported by the route.** Whether a catalog — and therefore a palette — should
+ever *offer* `Delete` is a **product policy**, not an absence of mechanism, and the two must not be
+confused: a catalog that silently omits `Delete` because nobody noticed it exists is a different thing
+from one that excludes it deliberately. Decided in D3b.
 
 `ConfigViewItem` can compute these URLs **without navigating**: `urlRead(id)`, `urlUpdate(id)`,
 `urlDelete(id)` (`ConfigViewItem.kt:323-350`). `ConfigView.viewUrl(apiFilter)` does the same for lists
 (`ConfigView.kt:184`).
+
+### C6b — `urlCreate` is not the URL `navigateToQueryCreate` produces
+
+`urlCreate` emits only `action=Create` (`ConfigViewItem.kt:117-121`). `navigateToQueryCreate(…,
+apiFilter)` goes through `apiItemToParamList`, which **also serializes `apiFilter`**
+(`ConfigViewItem.kt:134-164`). So two *contextualized* creates over the same view have **different**
+URLs — `key = targetUrl` (T2) survives `Create` — but only if the declared URL is built the way the
+launch actually navigates. Declaring `urlCreate` while launching through the query path would make a
+destination's stated URL disagree with where it goes.
 
 ### C7 — A view may **impose** its filter, in which case its URL under-promises
 
