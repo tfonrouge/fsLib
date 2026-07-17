@@ -86,7 +86,9 @@ the opposite. `Read`/`Update`/`Delete` need an id; **`Create` does not**
 **All four actions are supported by the route.** Whether a catalog — and therefore a palette — should
 ever *offer* `Delete` is a **product policy**, not an absence of mechanism, and the two must not be
 confused: a catalog that silently omits `Delete` because nobody noticed it exists is a different thing
-from one that excludes it deliberately. Decided in D3b.
+from one that excludes it deliberately. **Decided (D3b LOCKED 2026-07-17): `Create`/`Read`/`Update`
+are catalog destinations; `Delete` is excluded by written policy — its mechanism stays, its catalog
+entry does not.**
 
 `ConfigViewItem` can compute these URLs **without navigating**: `urlRead(id)`, `urlUpdate(id)`,
 `urlDelete(id)` (`ConfigViewItem.kt:323-350`). `ConfigView.viewUrl(apiFilter)` does the same for lists

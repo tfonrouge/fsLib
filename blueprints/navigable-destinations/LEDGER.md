@@ -4,7 +4,7 @@ Decisions with rationale and falsification conditions. Both-directions disciplin
 stays written down, so it is not silently re-proposed later (rejection amnesia), and an approved one
 stays falsifiable (approval calcification).
 
-**Status: D1 + D1-sub + D2 + D3 LOCKED (2026-07-17). D3b + D4 + D5 OPEN.** The spike that produced the
+**Status: D1 + D1-sub + D2 + D3 + D3b LOCKED (2026-07-17). D4 + D5 OPEN.** The spike that produced the
 evidence is complete; the remaining decisions are the owner's.
 
 ## Recommendations at a glance
@@ -20,7 +20,7 @@ evidence is complete; the remaining decisions are the owner's.
 | **D1-sub** | reject duplicate `baseUrl` at insertion? | ✅ **LOCKED 2026-07-17 — YES**: reject at insertion across all three registry maps (closes overwrite-within-family + shadow-across-families). Fail-fast at startup ⇒ **rollout gated on sweeping mppErsaPack for an existing collision first**. SemVer major. |
 | **D2** | what is an `ICommonContainer`? | ✅ **LOCKED 2026-07-17 — (a)**: accept the RBAC-identity + labels overload as intentional contract; a purposed destination never gets its own container (would fork `classOwner`), its label lives on the destination (D3). (b) split refused. |
 | **D3** | where does the destination label live? | ✅ **LOCKED 2026-07-17 — (a)**: on the destination, default = `configView.label` (container label holds by construction; override = declared data). **`shortLabel` deferred** — added only if rendering all three consumers proves the card breaks. |
-| **D3b** | which `ViewItem` actions are catalog destinations? | **`Create` in** (natural palette query), **`Delete` out and in writing** (a one-keystroke path to a destruction form is not a search box's job; nothing reaches Delete by URL today). |
+| **D3b** | which `ViewItem` actions are catalog destinations? | ✅ **LOCKED 2026-07-17**: **Create + Read + Update in, Delete out** (written policy). `Create` is a distinct id-less variant, and builds its URL the way it navigates (never `urlCreate`, F14/C6b). Delete's mechanism stays; only its catalog exclusion is policy. |
 | **D4** | filter: replaceable default or imposed scope? | **(c) both, explicitly declared** — both semantics are already live in the app. Open and load-bearing: the shape must be *per-field-expressive AND readable without rendering*, and those pull apart (may cap T1). |
 | **D5** | help-doc navigation bridge | **(a)** instrument the document at construction, on **both** paths — the parent-side interceptor is proven, and proven to fail (lost on theme rebuild, absent in the detached windows). |
 
@@ -204,7 +204,22 @@ actually breaks.
 **Falsification.** If more than a handful of the ~92 destinations need overrides, the default is not
 carrying its weight and the container labels themselves are wrong — a different, larger fix.
 
-## D3b — Which `ViewItem` actions are catalog destinations? (OPEN, raised by owner 2026-07-16)
+## D3b — Which `ViewItem` actions are catalog destinations? (**LOCKED 2026-07-17: Create in, Delete out**)
+
+**DECISION (owner, 2026-07-17): LOCKED.** Catalog destinations over a `ViewItem` are **`Create`,
+`Read`, `Update`** — **`Delete` is excluded, by written policy, not by omission.** `Create` is in
+because it is the natural palette query ("create an OT"); `Delete` is out because a one-keystroke path
+from a search box to a destruction form is a hazard the catalog should not manufacture, and nothing in
+the app reaches Delete by URL today (verified: mppArel's `CrudTask.Delete` goes through
+`ViewList.goActionUrl()` → `confirmDeleteView(...)` locally, never a URL). The mechanism for Delete
+stays (`urlDelete` exists, C6) — the exclusion is a **catalog/palette policy**, not a claim that Delete
+is unroutable. Two binding notes carried from the analysis: (i) `Create` is a **distinct variant**, not
+a third `ItemAction` enum value — it takes no id (`navigateToQueryCreate(id: ID? = null)`) while
+`ItemFijo` requires one; (ii) a Create destination builds its URL the way it **navigates**
+(`navigateToQueryCreate(apiFilter=…)`, which serializes the filter), **never** via `urlCreate` (which
+omits it) — else the declared URL disagrees with where it goes and a doc CI check certifies a lie
+(F14/C6b). `Create` does **not** collapse `key = targetUrl` (two contextualized creates differ by their
+serialized filter).
 
 **Question.** A data model has exactly two views: `ViewList` (the listing) and `ViewItem` (the
 Create/Read/Update form). The route supports **four** actions — `Create`, `Read`, `Update`, **and
