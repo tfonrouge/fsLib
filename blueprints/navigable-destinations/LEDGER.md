@@ -7,6 +7,23 @@ stays falsifiable (approval calcification).
 **Status: D1–D5 are OPEN.** Nothing is locked. The spike that produced the evidence is complete; the
 decisions are the owner's.
 
+## Recommendations at a glance
+
+> **Digest, not authority.** Each row condenses the `Recommendation:` line inside the decision it
+> points to; the decision body is the source of truth (rationale, options, falsification). If the two
+> ever disagree, the body wins and this table is stale. Written by the assistant; **none is locked** —
+> the owner decides.
+
+| Decision | Question | Assistant's recommendation |
+|---|---|---|
+| **D1** | `baseUrl` derivation | Write rule **(b)**: authority is `configView.url`, never a class-name assumption. (a) *unify* is **refuted** — it would move the app root `#/` → `#/ViewHome`. The (c) *assert* half already shipped (P1.1). |
+| **D1-sub** | reject duplicate `baseUrl` at insertion? | **Yes.** The only attack the consumer is structurally blind to (a collision's loser leaves no runtime trace), and its trigger — two `ConfigViewList` over one view — is exactly what T2 enables. |
+| **D2** | what is an `ICommonContainer`? | **(a)** accept the RBAC-identity + labels overload and **document it hard**. (b) split = a data migration of `classOwner` across every consumer's RBAC tables, disproportionate for a naming concern. |
+| **D3** | where does the destination label live? | **(a)** on the destination, default = `configView.label`. **No `shortLabel`** until rendering proves the card needs one — adding it up front re-introduces two labels that can drift. |
+| **D3b** | which `ViewItem` actions are catalog destinations? | **`Create` in** (natural palette query), **`Delete` out and in writing** (a one-keystroke path to a destruction form is not a search box's job; nothing reaches Delete by URL today). |
+| **D4** | filter: replaceable default or imposed scope? | **(c) both, explicitly declared** — both semantics are already live in the app. Open and load-bearing: the shape must be *per-field-expressive AND readable without rendering*, and those pull apart (may cap T1). |
+| **D5** | help-doc navigation bridge | **(a)** instrument the document at construction, on **both** paths — the parent-side interceptor is proven, and proven to fail (lost on theme rebuild, absent in the detached windows). |
+
 ---
 
 ## D0 — Process (settled)
