@@ -186,8 +186,10 @@ at a call site. (b) *a label on `ConfigView`* is refused (it is the wrong home �
 the destination, not the view config; see the refuted list). **(c) `shortLabel` is deferred, not
 adopted:** adding a second label up front re-introduces exactly the drift this decision removes.
 Whether the home card needs a shorter form ("OT Taller" vs "Ordenes de Trabajo de Taller") is settled
-by **rendering the canonical label in all three consumers first** (a P4 step), and adding `shortLabel`
-only if the card actually breaks — evidence, not anticipation.
+by **rendering the canonical label** (a P4 step), and adding `shortLabel` only if the card actually
+breaks — evidence, not anticipation. **Answered 2026-07-17 (P4.1 first slice, mppArel `437f4cf8`): the
+canonical label FITS.** The card's links are wrap chips; "Ordenes de Trabajo de Taller" takes a wider
+chip and the rest wrap, no overflow or truncation. **`shortLabel` is not needed** — the deferral held.
 
 **Question.** The container is canonical for the entity (C5) — but "Control de Calidad" is a *purposed*
 destination, not `PiezaPaso`'s list, and calling it "Pasos de Piezas" would be worse for users.
