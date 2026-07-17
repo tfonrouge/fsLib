@@ -200,10 +200,43 @@ conventional "default" applies only when nothing was passed.
 | Semantics | Where | How |
 |---|---|---|
 | **Imposed scope** | `ViewCapturaQA.pageListBody():90-93` | rewrites even an explicit `soloPendientesQa=false` to `true` |
-| **Replaceable default** | `ViewListMonitoringData.apiFilterInit():150-156`, `ViewListAnalisisEficOrdenTrabajo:58-62` | `apiFilter.copy(fecha1 = apiFilter.fecha1 ?: …)` — the `?:` fills **only when absent**, preserving a value that arrived by URL |
+| **Replaceable default** | `ViewListMonitoringData.apiFilterInit():150-156` | `apiFilter.copy(fecha1 = apiFilter.fecha1 ?: …)` — the `?:` fills **only when absent** |
 
 *(I briefly recommended "scope only" on the premise that nobody needed a replaceable default. The
 premise was false and unverified — both live in the app today. Recommendation restored to (c).)*
+
+**And it is not a per-view property — it is PER FIELD (ROAR, browser-verified 2026-07-16).**
+`ViewListAnalisisEficOrdenTrabajo.apiFilterInit():58-63` mixes all three rules in one function:
+
+```kotlin
+startDate        = apiFilter.startDate ?: Date().minusWeeks(1),        // default: preserves
+endDate          = null,                                                // SCOPE: erases explicit
+areaTrabajoIdSet = apiFilter.areaTrabajoIdSet.ifEmpty { setOf("00002") } // default: preserves
+```
+
+Opened with `{startDate, endDate, areaTrabajoIdSet}` all explicit, the URL settles to
+`{startDate: "2026-01-15…", areaTrabajoIdSet: ["00003"]}` — **`startDate` and the set survive;
+`endDate` is gone**. So two whole-filter fields (`defaultFilter` / `scopeFilter`) **cannot express
+this**: there is no way to say which rule wins per attribute. **D4 must decide the granularity of the
+declaration before assuming scope and default are two values of one field.**
+
+**The strongest argument for declaring at all — and note what is proven and what is not.**
+
+**Proven:** an `endDate` arriving by URL is erased, while `startDate` and `areaTrabajoIdSet` survive.
+Deep-link and interactive use therefore diverge: the field is editable in the UI and shown in the
+banner, but unreachable by link.
+
+**Not proven: intent.** I first wrote that this "is most likely an accident" and then that a
+mechanical refactor introduced it. **Both were invention.** `git blame` and the diff of
+`63d5b994 — Refactor apiFilterInstance to apiFilterInit` show `endDate = null` as a **context line**:
+it predates the refactor and survived it unchanged. Nothing in the history states a business reason,
+and nothing rules one out. Recorded as a **deep-link behavior worth an owner look** — possibly a bug,
+possibly a deliberate rule nobody wrote down — **not** as an inference about the author.
+
+That ambiguity *is* the argument: a reader today cannot tell imposed scope from a slip, because
+`endDate = null` looks inert and behaves destructively, and the code offers no way to say which it
+means. **Declaring is what makes the two distinguishable.** (The specific case is out of this
+blueprint's scope.)
 
 **Recommendation: (c) — both, explicitly declared.** They are different features, the difference is
 user-visible, and both are already in use. Modeling scope as default is the regression named above;
@@ -220,8 +253,18 @@ different asks, and only one is urgent:
   field would have to take a **lambda**, not a value — a materially bigger surface than scope needs.
   So "declare both" does not mean "declare both the same way".
 
+**Open, and to settle before any P2 code: the granularity.** Per-field rules plus per-field
+computed values point the same way — whatever `ConfigView` accepts is closer to *a function of the
+incoming filter* than to *a filter value*. That is very nearly `apiFilterInit()` itself, which C8
+already rejected as unreadable from a `ConfigView`. **The unsolved part of D4 is finding a shape that
+is both per-field-expressive and readable without rendering** — the two requirements that pull apart.
+
 **Falsification.** If elevating scope turns out to require the same lambda-shaped surface as defaults,
-the two collapse into one feature and (c)'s distinction buys nothing.
+the two collapse into one feature and (c)'s distinction buys nothing. Sharpened: if the only
+per-field-expressive shape *is* a lambda over the incoming filter, then it is `apiFilterInit` by
+another name and T1 is unreachable for imposing views — at which point the honest answer is that a
+destination declares its URL **only when the view respects it**, and the catalog says so per
+destination instead of pretending otherwise.
 
 ## D5 — The help navigation bridge
 
