@@ -78,7 +78,7 @@ after two consumers depend on it.
 |---|---|---|---|
 | **P3.1** | Instrument the document at construction on **both** paths of C9 — `createBlobUrl(injectThemeAttribute(...))` **and** `detachToWindow`'s own template. `(window.opener \|\| window.parent \|\| window).location.hash = href`. There is no single choke point; this is two call sites, not one. | D5 | ~15 lines |
 | **P3.2** | Decide and implement the `<body>`-less fragment case (C11, 17 docs): instrument, wrap, or declare out of scope. | D5 | contract, not discovery |
-| **P3.3** | Degrade visibly when `window.opener` is null (reloaded detached window) rather than silently doing nothing. | D5 | |
+| **P3.3** | **Concrete visible degradation when there is no app window to reach** (`opener` null *and* `parent === window` — a reloaded detached window). The bare `(opener \|\| parent \|\| window)` chain fails here: it sets the doc's **own** hash, a click that looks like it worked and went nowhere (ROAR 2026-07-17). Define and **test one observable** — e.g. the link renders disabled with an "open this from the app" notice — not "degrade visibly" as intent. | D5 | |
 | **P3.4** | Browser-verify all three surfaces **and** a theme rebuild. The parent-side interceptor already passed on one surface, one load — and was still the wrong design (C10). One green surface is not evidence. | | |
 
 ## Phase 4 — Consumer adoption · BREAKING for the consumer · construction

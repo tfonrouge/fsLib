@@ -284,42 +284,43 @@ conventional "default" applies only when nothing was passed.
 *(I briefly recommended "scope only" on the premise that nobody needed a replaceable default. The
 premise was false and unverified — both live in the app today. Recommendation restored to (c).)*
 
-**And it is not a per-view property — it is PER FIELD (ROAR, browser-verified 2026-07-16).**
-`ViewListAnalisisEficOrdenTrabajo.apiFilterInit():58-63` mixes all three rules in one function:
+**And it is not a per-view property — it is PER FIELD (ROAR, browser-verified 2026-07-16), and there
+are THREE rules, not two.** `ViewListAnalisisEficOrdenTrabajo.apiFilterInit()` mixes rules field by
+field. **Cross-repo note (ROAR 2026-07-17): this view was since fixed** — mppArel `7b0c5e47`
+(AUDIT §5 F1) changed `endDate` from a scope-erase to pass-through — so the block below is **historical
+evidence**, superseded in code, kept because it is what surfaced the per-field taxonomy:
 
 ```kotlin
-startDate        = apiFilter.startDate ?: Date().minusWeeks(1),        // default: preserves
-endDate          = null,                                                // SCOPE: erases explicit
-areaTrabajoIdSet = apiFilter.areaTrabajoIdSet.ifEmpty { setOf("00002") } // default: preserves
+// BEFORE (7b0c5e47) — the erase that surfaced the whole point:
+startDate        = apiFilter.startDate ?: Date().minusWeeks(1),         // DEFAULT: fill if absent
+endDate          = null,                                                 // SCOPE: erases even explicit
+areaTrabajoIdSet = apiFilter.areaTrabajoIdSet.ifEmpty { setOf("00002") } // DEFAULT: fill if empty
+// AFTER (current) — still per-field, milder illustration:
+endDate          = apiFilter.endDate,                                    // PASS-THROUGH: take as-is
 ```
 
-Opened with `{startDate, endDate, areaTrabajoIdSet}` all explicit, the URL settles to
-`{startDate: "2026-01-15…", areaTrabajoIdSet: ["00003"]}` — **`startDate` and the set survive;
-`endDate` is gone**. So two whole-filter fields (`defaultFilter` / `scopeFilter`) **cannot express
-this**: there is no way to say which rule wins per attribute. **D4 must decide the granularity of the
-declaration before assuming scope and default are two values of one field.**
+**What survives the fix, and matters more for D4 than the erase did:** the live taxonomy is not
+default-vs-scope — it is **three per-field rules**: **default** (fill if absent — `startDate`,
+`areaTrabajoIdSet`, `MonitoringData`), **pass-through** (take exactly what arrived — `endDate` now),
+and **scope** (impose regardless — `ViewCapturaQA`). The D4 options (a)/(b)/(c) framed it as two; the
+AnalisisEfic fix revealed the third. So two whole-filter fields (`defaultFilter` / `scopeFilter`)
+**still cannot express this** — worse than before, since even *three* whole-filter fields wouldn't say
+which rule wins **per attribute**. **D4 must decide the granularity of the declaration; the per-field,
+three-rule shape is now the live fact, not a hypothetical about one view.**
 
-**The strongest argument for declaring at all — and note what is proven and what is not.**
+**On the specific `AnalisisEfic` case (resolved, for the record):** the erase was a real deep-link
+divergence, fixed in `7b0c5e47`; whether `Fecha Fin` should mean an inclusive local day is a separate
+open semantics question (mppArel AUDIT §5 **F2**), not this blueprint's. Author intent was never
+proven (`git blame` pointed only at a comma-adding commit; the line predated it) — recorded as
+behavior, not inference.
 
-**Proven:** an `endDate` arriving by URL is erased, while `startDate` and `areaTrabajoIdSet` survive.
-Deep-link and interactive use therefore diverge: the field is editable in the UI and shown in the
-banner, but unreachable by link.
-
-**Not proven: intent.** I first wrote that this "is most likely an accident" and then that a
-mechanical refactor introduced it. **Both were invention.** `git blame` and the diff of
-`63d5b994 — Refactor apiFilterInstance to apiFilterInit` show `endDate = null` as a **context line**:
-it predates the refactor and survived it unchanged. Nothing in the history states a business reason,
-and nothing rules one out. Recorded as a **deep-link behavior worth an owner look** — possibly a bug,
-possibly a deliberate rule nobody wrote down — **not** as an inference about the author.
-
-That ambiguity *is* the argument: a reader today cannot tell imposed scope from a slip, because
-`endDate = null` looks inert and behaves destructively, and the code offers no way to say which it
-means. **Declaring is what makes the two distinguishable.** (The specific case is out of this
-blueprint's scope.)
-
-**Recommendation: (c) — both, explicitly declared.** They are different features, the difference is
-user-visible, and both are already in use. Modeling scope as default is the regression named above;
-modeling default as scope would freeze `MonitoringData`'s date filter against the user.
+**Recommendation: (c), refined by the three-rule finding — pass-through is the un-declared baseline;
+`default` and `scope` are the two declarable rules.** A field the destination says nothing about is
+**pass-through** (identity — the fixed `AnalisisEfic.endDate` is exactly this, and needs no metadata).
+The two that carry meaning and must be declared are **default** (fill if absent) and **scope** (impose
+regardless). So "declare both" stands, now precise about *which* two. Modeling scope as default is the
+regression named above; modeling default as scope would freeze `MonitoringData`'s date filter against
+the user; treating scope's imposition as pass-through would silently drop `ViewCapturaQA`'s guarantee.
 
 **Reframed, which narrows the real cost (ROAR):** the question is *not whether* replaceable behavior
 exists — it does — but **whether it is elevated to declarable metadata on the `ConfigView`**. Those are
@@ -350,9 +351,9 @@ destination instead of pretending otherwise.
 **DECISION (owner, 2026-07-17): LOCKED on (a).** The bridge is **instrumented into the document at
 construction, on both paths of C9** — the `createBlobUrl(injectThemeAttribute(...))` path (modal iframe
 + "Ventana separada") and `detachToWindow`'s own `document.write` template. The instrumented script
-routes an in-document `#/` link via `(window.opener || window.parent || window).location.hash`, so it
-navigates the app from the modal iframe (`parent`), the detached blob window and the popup (`opener`)
-alike, and a theme rebuild **re-instruments** rather than breaks. (b) *parent-side interceptor* is
+routes an in-document `#/` link to the **app window** — `window.opener` for the detached blob window
+and the popup, `window.parent` for the modal iframe — and a theme rebuild **re-instruments** rather
+than breaks. (b) *parent-side interceptor* is
 refused — proven to work on one surface and proven to fail on theme rebuild and in both detached
 windows (see refuted list); (c) *absolute URLs* refused — hardcodes the host into docs that must be
 identical in dev and prod.
@@ -360,8 +361,13 @@ identical in dev and prod.
 **Two things this lock binds into the PLAN, not settled here** (they are implementation, not the
 approach): (i) the `<body>`-less fragments (C11, 17 `_fields.html`) are **out of the bridge's scope**
 until proven otherwise — they do not reach path A today; if one ever does, it is wrapped before
-instrumenting, never silently skipped; (ii) when `window.opener` is null (a reloaded detached window)
-the bridge **degrades visibly**, not silently — a dead click must look dead.
+instrumenting, never silently skipped; (ii) **"degrades visibly" needs an explicit guard, not the bare
+`(opener || parent || window)` chain (ROAR 2026-07-17).** In a reloaded detached window `opener` is
+null *and* `parent` is the window itself, so that chain would set the document's **own** hash — a click
+that looks like it worked and went nowhere, i.e. the exact silent failure we are avoiding. The bridge
+must therefore **detect "no app window to reach"** (`opener` null and `parent === window`) and emit a
+**concrete observable** — disable the link / show a visible "abrí esto desde la app" notice — never
+fall through to self. The observable is defined and tested in P3.3, not left as intent.
 
 **Invariant this lock makes load-bearing (P1.4):** the blob iframe stays **same-origin and
 unsandboxed**. Adding a `sandbox` attribute later kills every in-document link **silently** — the same
