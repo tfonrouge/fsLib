@@ -4,8 +4,8 @@ Decisions with rationale and falsification conditions. Both-directions disciplin
 stays written down, so it is not silently re-proposed later (rejection amnesia), and an approved one
 stays falsifiable (approval calcification).
 
-**Status: D1 + D1-sub + D2 + D3 + D3b LOCKED (2026-07-17). D4 + D5 OPEN.** The spike that produced the
-evidence is complete; the remaining decisions are the owner's.
+**Status: D1 + D1-sub + D2 + D3 + D3b + D5 LOCKED (2026-07-17). D4 OPEN (last).** The spike that produced
+the evidence is complete; the remaining decision is the owner's.
 
 ## Recommendations at a glance
 
@@ -22,7 +22,7 @@ evidence is complete; the remaining decisions are the owner's.
 | **D3** | where does the destination label live? | ✅ **LOCKED 2026-07-17 — (a)**: on the destination, default = `configView.label` (container label holds by construction; override = declared data). **`shortLabel` deferred** — added only if rendering all three consumers proves the card breaks. |
 | **D3b** | which `ViewItem` actions are catalog destinations? | ✅ **LOCKED 2026-07-17**: **Create + Read + Update in, Delete out** (written policy). `Create` is a distinct id-less variant, and builds its URL the way it navigates (never `urlCreate`, F14/C6b). Delete's mechanism stays; only its catalog exclusion is policy. |
 | **D4** | filter: replaceable default or imposed scope? | **(c) both, explicitly declared** — both semantics are already live in the app. Open and load-bearing: the shape must be *per-field-expressive AND readable without rendering*, and those pull apart (may cap T1). |
-| **D5** | help-doc navigation bridge | **(a)** instrument the document at construction, on **both** paths — the parent-side interceptor is proven, and proven to fail (lost on theme rebuild, absent in the detached windows). |
+| **D5** | help-doc navigation bridge | ✅ **LOCKED 2026-07-17 — (a)**: instrument the document at construction on **both** C9 paths; `(window.opener \|\| window.parent \|\| window).location.hash`. Parent-side interceptor refused (fails on theme rebuild + detached windows). Binds P1.4: blob iframe stays same-origin + unsandboxed. |
 
 ---
 
@@ -345,7 +345,27 @@ another name and T1 is unreachable for imposing views — at which point the hon
 destination declares its URL **only when the view respects it**, and the catalog says so per
 destination instead of pretending otherwise.
 
-## D5 — The help navigation bridge
+## D5 — The help navigation bridge (**LOCKED 2026-07-17: option (a)**)
+
+**DECISION (owner, 2026-07-17): LOCKED on (a).** The bridge is **instrumented into the document at
+construction, on both paths of C9** — the `createBlobUrl(injectThemeAttribute(...))` path (modal iframe
++ "Ventana separada") and `detachToWindow`'s own `document.write` template. The instrumented script
+routes an in-document `#/` link via `(window.opener || window.parent || window).location.hash`, so it
+navigates the app from the modal iframe (`parent`), the detached blob window and the popup (`opener`)
+alike, and a theme rebuild **re-instruments** rather than breaks. (b) *parent-side interceptor* is
+refused — proven to work on one surface and proven to fail on theme rebuild and in both detached
+windows (see refuted list); (c) *absolute URLs* refused — hardcodes the host into docs that must be
+identical in dev and prod.
+
+**Two things this lock binds into the PLAN, not settled here** (they are implementation, not the
+approach): (i) the `<body>`-less fragments (C11, 17 `_fields.html`) are **out of the bridge's scope**
+until proven otherwise — they do not reach path A today; if one ever does, it is wrapped before
+instrumenting, never silently skipped; (ii) when `window.opener` is null (a reloaded detached window)
+the bridge **degrades visibly**, not silently — a dead click must look dead.
+
+**Invariant this lock makes load-bearing (P1.4):** the blob iframe stays **same-origin and
+unsandboxed**. Adding a `sandbox` attribute later kills every in-document link **silently** — the same
+rot, relocated into the fix — so a test must pin it, or (a) is a trap.
 
 **Question.** In-document app links are dead (C10), and there is no single instrumentation point (C9).
 

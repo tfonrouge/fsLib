@@ -183,13 +183,15 @@ A `ConfigView`-level filter states whether it is a **replaceable default** or an
 Modeling C7 as a default would be a **regression**: `#/ViewCapturaQA?apiFilter={"soloPendientesQa":false}`
 would show every step, and "Control de Calidad" would stop being a pending queue by editing a URL.
 
-### T5 — The navigation bridge travels with the document *(gated on D5)*
+### T5 — The navigation bridge travels with the document *(**D5 LOCKED 2026-07-17 — (a)**)*
 
 A help document instrumented at construction carries its own bridge, so
 `(window.opener || window.parent || window).location.hash = href` covers the modal iframe, the detached
 blob window and the `document.write` popup alike, and a theme rebuild re-instruments rather than
-breaks. Requires **both** construction paths of C9 to instrument (there is no single choke point), and
-degrades silently when `opener` is null (a reloaded detached window).
+breaks. Requires **both** construction paths of C9 to instrument (there is no single choke point). When
+`opener` is null (a reloaded detached window) the bridge **degrades visibly** — a dead click looks dead
+— not silently (D5 decision). `<body>`-less fragments (C11) are out of scope until one reaches path A,
+then wrapped, never silently skipped.
 
 **Invariant this creates, and which must itself be pinned:** the blob iframe stays same-origin and
 unsandboxed. Adding a `sandbox` attribute later would break every in-document link **silently** — the

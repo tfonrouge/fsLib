@@ -4,7 +4,8 @@
 > downstream app changes. **BREAKING** = moves a URL, changes a rendered label, or alters what a
 > destination shows (each cites its LEDGER decision).
 
-**D1 + D1-sub + D2 + D3 + D3b LOCKED (2026-07-17); D4 + D5 still OPEN.** No Phase-2/3 code is started;
+**D1 + D1-sub + D2 + D3 + D3b + D5 LOCKED (2026-07-17); D4 the only one still OPEN.** No Phase-2/3 code
+is started;
 those phases remain gated on locking the rest. **D1-sub adds a shippable Phase-2 item:** `ConfigView` registration
 rejects a duplicate `baseUrl` (all three maps; fail-fast) — **gated on first sweeping mppErsaPack for
 an existing collision** (mppArel already clean). SemVer major.
@@ -58,7 +59,7 @@ root). **D1-sub is LOCKED (YES — reject duplicate `baseUrl` at insertion)**; i
 the mppErsaPack collision sweep. **D2 is LOCKED ((a) — the `ICommonContainer` overload stays; label
 lives on the destination).** **D3 is LOCKED ((a) — label on the destination, default `configView.label`;
 `shortLabel` deferred).** **D3b is LOCKED (Create/Read/Update in, Delete out by policy).** Still to
-lock: D4, D5. P1.3's outcome feeds
+lock: **D4 only** (D5 LOCKED — (a), instrument at construction on both C9 paths). P1.3's outcome feeds
 D4. Do not start P2 with D4 open: modeling an imposed scope as a default is a **user-visible
 regression** (T4), and it is the kind of thing that is cheap to decide now and expensive to unpick
 after two consumers depend on it.
