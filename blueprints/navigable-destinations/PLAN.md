@@ -4,8 +4,9 @@
 > downstream app changes. **BREAKING** = moves a URL, changes a rendered label, or alters what a
 > destination shows (each cites its LEDGER decision).
 
-**D1 + D1-sub + D2 + D3 + D3b + D5 LOCKED (2026-07-17); D4 the only one still OPEN.** No Phase-2/3 code
-is started;
+**ALL DECISIONS LOCKED (2026-07-17): D1, D1-sub, D2, D3, D3b, D4, D5.** The decision gate is passed;
+Phase 2 may begin (gated only by D1-sub's mppErsaPack collision sweep). No Phase-2/3 code is started
+yet;
 those phases remain gated on locking the rest. **D1-sub adds a shippable Phase-2 item:** `ConfigView` registration
 rejects a duplicate `baseUrl` (all three maps; fail-fast) — **gated on first sweeping mppErsaPack for
 an existing collision** (mppArel already clean). SemVer major.
@@ -58,11 +59,11 @@ test that needs a change to go green is a Phase-2 test.
 root). **D1-sub is LOCKED (YES — reject duplicate `baseUrl` at insertion)**; its rollout is gated on
 the mppErsaPack collision sweep. **D2 is LOCKED ((a) — the `ICommonContainer` overload stays; label
 lives on the destination).** **D3 is LOCKED ((a) — label on the destination, default `configView.label`;
-`shortLabel` deferred).** **D3b is LOCKED (Create/Read/Update in, Delete out by policy).** Still to
-lock: **D4 only** (D5 LOCKED — (a), instrument at construction on both C9 paths). P1.3's outcome feeds
-D4. Do not start P2 with D4 open: modeling an imposed scope as a default is a **user-visible
-regression** (T4), and it is the kind of thing that is cheap to decide now and expensive to unpick
-after two consumers depend on it.
+`shortLabel` deferred).** **D3b is LOCKED (Create/Read/Update in, Delete out by policy).** **D5 is
+LOCKED ((a), instrument at construction on both C9 paths).** **D4 is LOCKED ((c), per field, T1
+consciously narrowed — computed-per-opening defaults are left to the view and omitted from the declared
+URL; T1 holds for declarable fields only).** **All decisions are locked; the gate is passed.** Phase 2
+begins, with D1-sub's rollout still gated on the mppErsaPack collision sweep.
 
 ## Phase 2 — Destination surface · additive, then BREAKING for consumers · construction
 

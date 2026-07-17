@@ -154,20 +154,29 @@ do not reach path A today; whether fragments are in scope for instrumentation is
 
 Each is gated on a LEDGER decision and is **not** yet settled.
 
-### T1 — A destination's target URL is computable without rendering *(gated on D2, D4)*
+### T1 — A destination's target URL is computable without rendering, **for its declarable fields** *(**NARROWED by D4, LOCKED 2026-07-17**)*
 
-Given a declared destination, its exact URL — filter, id and action included — is readable without
-instantiating a view. This is the property that makes a documentation-link CI check possible, and the
-one C7/C8 currently deny for imposing views.
+Given a declared destination, its URL — id, action, and the **declarable** filter fields
+(pass-through + static default/scope) — is readable without instantiating a view. This is the property
+that makes a documentation-link CI check possible.
 
-**Proven reachable**: mppArel's `LaunchSpec` prototype computes `targetUrl` for lists, filtered lists
-and fixed items (`viewUrl` / `urlRead` / `urlUpdate`), with 6 tests green in Chrome Headless — but only
-for views that **respect** their filter.
+**Consciously narrowed (D4):** a **per-opening computed** default (`Date().minusWeeks(1)`) is *not*
+static metadata — expressing it needs a lambda over the incoming filter, i.e. `apiFilterInit` by
+another name (C8). So for such a field the declared URL **omits it** and the view fills it on render.
+T1 therefore holds for the declarable part, **not the whole filter**, and a destination over a
+computing/imposing view is **marked as such**. The CI link-check (P4.3) compares a citation against the
+*declared* URL and tolerates the computed-default gap — a view-filled field, not a broken link.
+
+**Proven reachable for the declarable part**: mppArel's `LaunchSpec` prototype computes `targetUrl`
+for lists, filtered lists and fixed items (`viewUrl` / `urlRead` / `urlUpdate`), 6 tests green in
+Chrome Headless.
 
 ### T2 — Destination identity is the destination, not the view *(gated on D2)*
 
 Two destinations differing only by filter are two destinations. `key = targetUrl` satisfies this and
-doubles as the citable link — **provided T1 holds**. Under C7 it does not: two URLs, one destination.
+doubles as the citable link. **Unaffected by T1's D4 narrowing:** destinations differ by their
+*declared* params, and a computed default is a view property, not a per-destination one — so it never
+splits or collapses two destinations' keys.
 
 ### T3 — The container label is canonical by construction *(**D3 LOCKED 2026-07-17 — (a)**)*
 
@@ -177,7 +186,7 @@ Whether a consumer needs a second, shorter form for space-constrained surfaces (
 "OT Taller" vs "Ordenes de Trabajo de Taller") is an **open empirical question**, to be answered by
 rendering, not by adding a `shortLabel` up front — `shortLabel` is **deferred**, not adopted (D3).
 
-### T4 — Filter semantics are declared, not discovered *(gated on D4 — still OPEN)*
+### T4 — Filter semantics are declared, not discovered *(**D4 LOCKED 2026-07-17 — (c), per field**)*
 
 A filter's semantics are **declared per field**, not discovered by rendering. The live taxonomy is
 **three rules**: **pass-through** (take what arrived — the un-declared baseline), **default** (fill if
@@ -185,13 +194,12 @@ absent), **scope** (impose regardless). Modeling C7's `ViewCapturaQA` scope as a
 **regression**: `#/ViewCapturaQA?apiFilter={"soloPendientesQa":false}` would show every step, and
 "Control de Calidad" would stop being a pending queue by editing a URL.
 
-> **Not yet a settled contract — D4 is the one OPEN decision.** An earlier draft of T4 said a
-> *`ConfigView`-level* filter declares default-or-scope. The LEDGER's per-field, three-rule finding
-> shows a **whole-filter** field cannot express `AnalisisEfic`'s mix (`startDate` default, `endDate`
-> pass-through, `areaTrabajoIdSet` default). The unresolved tension D4 must settle: a shape that is
-> **per-field-expressive AND readable without rendering** — and those pull apart (per-field computed
-> defaults want a lambda, which is nearly `apiFilterInit`, already rejected by C8). If no such shape
-> exists, T1 narrows: a destination declares its URL only for the fields it can, per destination.
+The declarable rules (static `default`/`scope`) live as `ConfigView` metadata **per field**; the
+un-declarable one (a per-opening computed default — nearly `apiFilterInit`, C8) is **left to the
+view**, and its field is simply absent from the declared URL — which is why **T1 is narrowed, not
+whole** (D4). A single whole-filter `defaultFilter`/`scopeFilter` pair was rejected: it cannot say
+which rule wins per attribute (`AnalisisEfic` = `startDate` default / `endDate` pass-through /
+`areaTrabajoIdSet` default).
 
 ### T5 — The navigation bridge travels with the document *(**D5 LOCKED 2026-07-17 — (a)**)*
 

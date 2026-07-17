@@ -4,8 +4,8 @@ Decisions with rationale and falsification conditions. Both-directions disciplin
 stays written down, so it is not silently re-proposed later (rejection amnesia), and an approved one
 stays falsifiable (approval calcification).
 
-**Status: D1 + D1-sub + D2 + D3 + D3b + D5 LOCKED (2026-07-17). D4 OPEN (last).** The spike that produced
-the evidence is complete; the remaining decision is the owner's.
+**Status: ALL DECISIONS LOCKED (2026-07-17) — D1, D1-sub, D2, D3, D3b, D4, D5.** The decision phase is
+closed; the blueprint moves to Phase 2 (build), gated only by D1-sub's mppErsaPack collision sweep.
 
 ## Recommendations at a glance
 
@@ -21,7 +21,7 @@ the evidence is complete; the remaining decision is the owner's.
 | **D2** | what is an `ICommonContainer`? | ✅ **LOCKED 2026-07-17 — (a)**: accept the RBAC-identity + labels overload as intentional contract; a purposed destination never gets its own container (would fork `classOwner`), its label lives on the destination (D3). (b) split refused. |
 | **D3** | where does the destination label live? | ✅ **LOCKED 2026-07-17 — (a)**: on the destination, default = `configView.label` (container label holds by construction; override = declared data). **`shortLabel` deferred** — added only if rendering all three consumers proves the card breaks. |
 | **D3b** | which `ViewItem` actions are catalog destinations? | ✅ **LOCKED 2026-07-17**: **Create + Read + Update in, Delete out** (written policy). `Create` is a distinct id-less variant, and builds its URL the way it navigates (never `urlCreate`, F14/C6b). Delete's mechanism stays; only its catalog exclusion is policy. |
-| **D4** | filter: replaceable default or imposed scope? | **(c) both, explicitly declared** — both semantics are already live in the app. Open and load-bearing: the shape must be *per-field-expressive AND readable without rendering*, and those pull apart (may cap T1). |
+| **D4** | filter: replaceable default or imposed scope? | ✅ **LOCKED 2026-07-17 — (c), T1 narrowed**: per-field, three rules (pass-through baseline; static `default`/`scope` declared). Computed per-opening defaults are **not** static metadata ⇒ the declared URL omits them and the view fills them — **T1 holds for declarable fields, not the whole filter**, marked per destination. T2 unaffected. |
 | **D5** | help-doc navigation bridge | ✅ **LOCKED 2026-07-17 — (a)**: instrument the document at construction on **both** C9 paths; route to the app window (`opener`, or `parent` when `!== window`), **not** a bare `(opener \|\| parent \|\| window)` chain — no-app-window must hit a visible observable (P3.3), not self-navigate. Parent-side interceptor refused. Binds P1.4: blob iframe stays same-origin + unsandboxed. |
 
 ---
@@ -52,8 +52,9 @@ exceptions (`ViewHome` → `""`, `ViewBolsaTrabajo` → `"bolsaDeTrabajo"`) stan
 
 **What this binds going forward:** documentation, help-docs and any CI link-check cite the **URL**
 (`#/…`), not the class name; P4.3's check compares full URLs against declared destinations, never
-resolves a class name. **Still OPEN:** the D1-sub — whether fsLib *rejects a duplicate `baseUrl` at
-insertion* — is a separate mechanism (a URL being *taken*, not *derived*) and was **not** locked here.
+resolves a class name. **Note:** the D1-sub — whether fsLib *rejects a duplicate `baseUrl` at
+insertion* — is a separate mechanism (a URL being *taken*, not *derived*), not part of D1's lock; it
+was locked separately (**D1-sub = YES**, see below).
 
 **Question.** `ConfigViewList`/`ConfigViewItem` guarantee `baseUrl == viewKClass.simpleName`; plain
 `ConfigView` derives `"View" + commonContainer.name` and merely *happens* to match (C2). Once
@@ -262,7 +263,35 @@ legitimate flow ever needs a Delete-by-URL destination (a confirmation link in a
 the "out" policy is wrong and the exclusion must move from the catalog to the palette's filter — the
 mechanism would still be there.
 
-## D4 — Is a `ConfigView`-level filter a default or an imposed scope?
+## D4 — Is a `ConfigView`-level filter a default or an imposed scope? (**LOCKED 2026-07-17: (c), T1 narrowed**)
+
+**DECISION (owner, 2026-07-17): LOCKED on (c), accepting that T1 narrows.** Filter semantics are
+declared **per field**, in three rules: **pass-through** (the un-declared baseline — the field is not
+touched), and two declarable ones, **default** (fill if absent) and **scope** (impose regardless). A
+`ConfigView` carries the declarable rules as **static metadata where the value is static** — a fixed
+scope like `soloPendientesQa=true`, a constant default — and those fields keep T1 (their contribution
+to the URL is computable without rendering).
+
+**T1 is consciously narrowed, not saved.** A **per-opening computed** default (`Date().minusWeeks(1)`)
+is not static metadata; expressing it would need a lambda over the incoming filter — which is
+`apiFilterInit()` by another name (C8), unreadable from a `ConfigView`. Rather than force that shape,
+the decision **accepts the honest limit** the falsification already named: for a field whose rule is a
+computed default, the destination's **declared URL omits it**; the view fills it on render. So:
+
+- **A destination's declared URL is authoritative for the fields it can declare** (pass-through +
+  static default/scope), and **silent about computed-default fields** — it does not pretend to predict
+  them. T1 holds for the declarable part, not the whole filter.
+- **The catalog marks this per destination**, not globally: a destination over an imposing/computing
+  view says "URL authoritative for declared fields"; most destinations (no computed defaults) are
+  fully authoritative as before.
+- **P4.3's link-check compares a citation against the *declared* URL**, tolerating a computed-default
+  gap — that gap is a view-filled field, **not a broken link**. The check never asserts the cited URL
+  equals the rendered filter for such destinations.
+
+**T2 (identity = target URL) is unaffected:** destinations differ by their *declared* params, and a
+computed default is a view property, not a per-destination one. **Rejected:** modeling scope as a plain
+default (regresses `ViewCapturaQA`), or forcing all defaults into a lambda surface just to make the
+computed ones declarable (that is `apiFilterInit`, C8 — the cure is the disease).
 
 **Question.** C7 shows `ViewCapturaQA` **imposes**: it rewrites an explicit `false` to `true`. A
 conventional "default" applies only when nothing was passed.
@@ -305,8 +334,9 @@ default-vs-scope — it is **three per-field rules**: **default** (fill if absen
 and **scope** (impose regardless — `ViewCapturaQA`). The D4 options (a)/(b)/(c) framed it as two; the
 AnalisisEfic fix revealed the third. So two whole-filter fields (`defaultFilter` / `scopeFilter`)
 **still cannot express this** — worse than before, since even *three* whole-filter fields wouldn't say
-which rule wins **per attribute**. **D4 must decide the granularity of the declaration; the per-field,
-three-rule shape is now the live fact, not a hypothetical about one view.**
+which rule wins **per attribute**. **This is why D4 locked on per-field granularity (see the DECISION
+at the top of this section); the per-field, three-rule shape is the live fact, not a hypothetical
+about one view.**
 
 **On the specific `AnalisisEfic` case (resolved, for the record):** the erase was a real deep-link
 divergence, fixed in `7b0c5e47`; whether `Fecha Fin` should mean an inclusive local day is a separate
@@ -333,11 +363,13 @@ different asks, and only one is urgent:
   field would have to take a **lambda**, not a value — a materially bigger surface than scope needs.
   So "declare both" does not mean "declare both the same way".
 
-**Open, and to settle before any P2 code: the granularity.** Per-field rules plus per-field
-computed values point the same way — whatever `ConfigView` accepts is closer to *a function of the
-incoming filter* than to *a filter value*. That is very nearly `apiFilterInit()` itself, which C8
-already rejected as unreadable from a `ConfigView`. **The unsolved part of D4 is finding a shape that
-is both per-field-expressive and readable without rendering** — the two requirements that pull apart.
+**The granularity tension — and how the lock resolved it.** Per-field rules plus per-field computed
+values point the same way — whatever `ConfigView` accepts is closer to *a function of the incoming
+filter* than to *a filter value*. That is very nearly `apiFilterInit()` itself, which C8 already
+rejected as unreadable from a `ConfigView`. There was **no shape both per-field-expressive and readable
+without rendering** for a *computed* default — the two requirements pull apart. **The lock did not
+force one: it accepted the limit.** Static default/scope are declared metadata (readable); a computed
+default is left to the view and omitted from the declared URL, narrowing T1 (see the DECISION above).
 
 **Falsification.** If elevating scope turns out to require the same lambda-shaped surface as defaults,
 the two collapse into one feature and (c)'s distinction buys nothing. Sharpened: if the only

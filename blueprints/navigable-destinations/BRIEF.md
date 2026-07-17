@@ -71,7 +71,9 @@ Every entry below was verified against code or in a live browser on 2026-07-16, 
   instance carries `PiezaPasoFilter(...)` and `DatosEmpresa.defaultId` — Arel domain types fsLib
   cannot know. A prototype (`LaunchSpec`/`LaunchCatalog`, 6 tests green) already lives in mppArel and
   is the evidence base for this blueprint.
-- **Fixing `ViewCapturaQA`.** Consumer-side; blocked on the default-vs-scope decision (D4).
+- **Fixing `ViewCapturaQA`.** Consumer-side. D4 is now **LOCKED ((c), per field)** — the scope
+  `soloPendientesQa=true` becomes declared `ConfigView` metadata; the consumer-side rewrite is Phase-4
+  work, no longer a blocked decision.
 
 ## Blast radius / SemVer
 
@@ -84,7 +86,8 @@ documents start citing links.
 
 ## Definition of done
 
-1. D1–D5 locked in the LEDGER with falsification conditions.
+1. ✅ D1–D5 (+ D1-sub, D3b) locked in the LEDGER with falsification conditions — **all 7 locked
+   2026-07-17** (D4 accepting T1 narrows).
 2. The contract's Layer C characterized behavior pinned by tests before any of it changes.
 3. A destination's label, filter and target URL are readable **without instantiating a view**, proven
    by a test that cannot pass against today's code.
