@@ -4,8 +4,8 @@ Decisions with rationale and falsification conditions. Both-directions disciplin
 stays written down, so it is not silently re-proposed later (rejection amnesia), and an approved one
 stays falsifiable (approval calcification).
 
-**Status: D1 + D1-sub LOCKED (2026-07-17). D2–D5 + D3b OPEN.** The spike that produced the evidence is
-complete; the remaining decisions are the owner's.
+**Status: D1 + D1-sub + D2 LOCKED (2026-07-17). D3 + D3b + D4 + D5 OPEN.** The spike that produced the
+evidence is complete; the remaining decisions are the owner's.
 
 ## Recommendations at a glance
 
@@ -18,7 +18,7 @@ complete; the remaining decisions are the owner's.
 |---|---|---|
 | **D1** | `baseUrl` derivation | ✅ **LOCKED 2026-07-17 — (b)**: authority is `configView.url`, never a class-name assumption. (a) *unify* refused (would move app root); (c) *assert* shipped as P1.1. |
 | **D1-sub** | reject duplicate `baseUrl` at insertion? | ✅ **LOCKED 2026-07-17 — YES**: reject at insertion across all three registry maps (closes overwrite-within-family + shadow-across-families). Fail-fast at startup ⇒ **rollout gated on sweeping mppErsaPack for an existing collision first**. SemVer major. |
-| **D2** | what is an `ICommonContainer`? | **(a)** accept the RBAC-identity + labels overload and **document it hard**. (b) split = a data migration of `classOwner` across every consumer's RBAC tables, disproportionate for a naming concern. |
+| **D2** | what is an `ICommonContainer`? | ✅ **LOCKED 2026-07-17 — (a)**: accept the RBAC-identity + labels overload as intentional contract; a purposed destination never gets its own container (would fork `classOwner`), its label lives on the destination (D3). (b) split refused. |
 | **D3** | where does the destination label live? | **(a)** on the destination, default = `configView.label`. **No `shortLabel`** until rendering proves the card needs one — adding it up front re-introduces two labels that can drift. |
 | **D3b** | which `ViewItem` actions are catalog destinations? | **`Create` in** (natural palette query), **`Delete` out and in writing** (a one-keystroke path to a destruction form is not a search box's job; nothing reaches Delete by URL today). |
 | **D4** | filter: replaceable default or imposed scope? | **(c) both, explicitly declared** — both semantics are already live in the app. Open and load-bearing: the shape must be *per-field-expressive AND readable without rendering*, and those pull apart (may cap T1). |
@@ -144,7 +144,16 @@ existing collision *before* this ships, or the same fail-fast that protects them
 The decision is locked; the rollout is conditional on that sweep. SemVer: **major** (a previously
 tolerated call now throws).
 
-## D2 — What is an `ICommonContainer`?
+## D2 — What is an `ICommonContainer`? (**LOCKED 2026-07-17: option (a)**)
+
+**DECISION (owner, 2026-07-17): LOCKED on (a).** The overload is **accepted as intentional contract**:
+an `ICommonContainer` is the data model's identity — its RBAC `classOwner` (C4) **and** its labels
+(C5), together. It is **not** split. Consequences now binding: (i) a purposed destination never gets
+its own container — that would mint a new `classOwner` and fork or deny its permissions; its label
+lives on the destination instead (see D3); (ii) the overload must be stated where it will be read, not
+left to rediscovery — C4 characterizes it and this lock elevates it to contract. (b) *split* is
+refused: it is a data migration of `classOwner` across every consumer's RBAC tables to fix a naming
+concern — not proportionate.
 
 **Question.** It is today both the **RBAC identity** (`classOwner`, C4) and the **presentation labels**
 (`labelItem`/`labelList`, C5). That overload is what made "give the destination its own container" look

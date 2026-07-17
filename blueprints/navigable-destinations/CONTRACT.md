@@ -50,6 +50,12 @@ the data model's authorization identity *and* its presentation labels. Giving a 
 its own container — the obvious way to satisfy "labels come from the container" — would mint a new
 `classOwner` and either deny the destination outright or fork its permissions away from the entity's.
 
+> **LOCKED contract (D2, 2026-07-17): the overload is intentional and stays.** An `ICommonContainer`
+> is one data model's RBAC identity **and** its labels, together — not split. Therefore a purposed
+> destination never mints its own container; its label lives on the destination (LaunchSpec), never in
+> a second container. Falsifiable: a consumer legitimately needing two permission scopes over one
+> entity reopens D2.
+
 ### C5 — `ConfigView.label` is polymorphic and already canonical
 
 `ConfigView.label` → `commonContainer.label`; `ConfigViewList` overrides to `labelList`;
