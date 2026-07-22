@@ -100,7 +100,7 @@ Belongs to the consuming apps; listed so the dependency is visible.
   `Unit?` ⇒ **no filtered cavity destination is expressible at all**. mppArel's "F1 / typed filter"
   debt, with a newly concrete consequence.
 - ~~**`:arel:jsBrowserTest` dies with `OutOfMemoryError`** at the committed `-Xmx2g`; needs `-Xmx6g`.
-  Blocks P1.3/P4.2/P4.3 in CI.~~ → **DOES NOT REPRODUCE (measured 2026-07-18).** `./gradlew build`
+  Blocks P1.3/P4.2/P4.3 in CI.~~ → **DOES NOT REPRODUCE (measured 2026-07-22).** `./gradlew build`
   **passes at the committed `-Xmx2g`** — full run with `--rerun-tasks` (59 tasks executed, including
   the complete JS compile + 6.59 MiB webpack bundle): **`jsBrowserTest` 17/17** and **`jvmTest`
   402 tests, 0 failures**, in 1m 09s. Passing `-Xmx6g` is cargo-cult inherited from this line, not a
