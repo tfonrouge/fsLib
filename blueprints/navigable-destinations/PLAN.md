@@ -99,8 +99,24 @@ Belongs to the consuming apps; listed so the dependency is visible.
 - **`ConfigViewListCavidadMolde` is declared with the generic `ApiFilter`**, whose `masterItemId` is
   `Unit?` ⇒ **no filtered cavity destination is expressible at all**. mppArel's "F1 / typed filter"
   debt, with a newly concrete consequence.
-- **`:arel:jsBrowserTest` dies with `OutOfMemoryError`** at the committed `-Xmx2g`; needs `-Xmx6g`.
-  Blocks P1.3/P4.2/P4.3 in CI. mppArel decision (affects everyone).
+- ~~**`:arel:jsBrowserTest` dies with `OutOfMemoryError`** at the committed `-Xmx2g`; needs `-Xmx6g`.
+  Blocks P1.3/P4.2/P4.3 in CI.~~ → **DOES NOT REPRODUCE (measured 2026-07-18).** `./gradlew build`
+  **passes at the committed `-Xmx2g`** — full run with `--rerun-tasks` (59 tasks executed, including
+  the complete JS compile + 6.59 MiB webpack bundle): **`jsBrowserTest` 17/17** and **`jvmTest`
+  402 tests, 0 failures**, in 1m 09s. Passing `-Xmx6g` is cargo-cult inherited from this line, not a
+  requirement of today's baseline.
+  **What the measurement does and does not establish — the debt is NARROWED, not deleted:**
+  - ✅ **P4.2 is measured, not projected:** its invariant test exists and **ran inside that 2 GB build**
+    (`ViewHomeNoLiteralLeavesTest`, 2/2, 0 failures). For P4.2 the blocker is disproven.
+  - ⚠️ **P1.3 and P4.3 are NOT measured — they do not exist yet.** P1.3 adds Karma **render
+    scaffolding** and P4.3 sweeps **help-docs × destinations**; neither memory profile is exercised by
+    today's 17-test JS baseline. The honest claim is that *the blocker stated in this line is absent
+    from the current baseline*, **not** that those two are cleared in advance. **When the first P1.3 or
+    P4.3 test lands, run its exact task at the committed `-Xmx2g`**: if it passes, the claim stops
+    being prospective; if it OOMs, the debt was never resolved — only absent from the baseline.
+  - ⚠️ **The live path is NOT verified:** 79 `jvmTest` cases **skipped** (the live-Mongo suite, which
+    skips visibly without `AREL_TEST_MONGO_USER`/`PASSWORD` — D-M7-2, no false-green). If the
+    historical OOM originated there, this run does not rule it out.
 - **`CommonUserSessionParams` defines no `labelItem`**, so it falls back to `itemKClass.simpleName` and
   the menu shows users the raw class name **"UserSessionParams"**. A declared catalog surfaces every
   such gap.
