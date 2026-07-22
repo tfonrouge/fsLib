@@ -1,6 +1,6 @@
 # BRIEF — Repository Write / Delete / Lifecycle Contract (LIBRARY)
 
-> Generated: 2026-06-08 · Premise: cathedral · Mode: business-blueprint LIBRARY
+> Generated: 2026-06-08 · Premise: cathedral (business-blueprint-workflow) · Mode: LIBRARY
 
 ## Goal
 

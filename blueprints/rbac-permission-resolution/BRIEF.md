@@ -1,6 +1,6 @@
 # BRIEF — RBAC Permission Resolution (LIBRARY)
 
-> Generated: 2026-06-21 · Premise: cathedral · Mode: business-blueprint LIBRARY
+> Generated: 2026-06-21 · Premise: cathedral (business-blueprint-workflow) · Mode: LIBRARY
 
 ## Goal
 
