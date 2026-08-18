@@ -4,8 +4,10 @@ import com.fonrouge.base.api.ApiList
 import com.fonrouge.base.api.IApiFilter
 import com.fonrouge.base.common.ICommonContainer
 import com.fonrouge.base.model.BaseDoc
+import com.fonrouge.base.state.SimpleState
 import com.fonrouge.base.state.State
 import com.fonrouge.fullStack.config.ConfigViewList
+import com.fonrouge.fullStack.lib.toast
 import com.fonrouge.fullStack.view.ViewDataContainer.Companion.clearStartTime
 import com.fonrouge.fullStack.view.ViewList
 import dev.kilua.rpc.HttpMethod
@@ -247,10 +249,13 @@ class TabulatorViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
                     }
                     this@TabulatorViewList.viewList.errorMessage = if (errorState) jsonObj.msgError as? String else null
                     if (errorState) {
-                        Toast.danger(
-                            message = this@TabulatorViewList.viewList.errorMessage ?: "Unknown error",
-                            options = ToastOptions(avatar = "")
-                        )
+                        // Routed through the shared state-to-toast path so the fallback message is
+                        // translated and the severity mapping stays in one place. The error-state
+                        // detection above is unchanged: only State.Error raises a toast here.
+                        SimpleState(
+                            state = State.Error,
+                            msgError = this@TabulatorViewList.viewList.errorMessage,
+                        ).toast(options = ToastOptions(avatar = ""))
                     }
                 }
                 this@TabulatorViewList.viewList.onReceivingData(jsonObj.data)

@@ -6,7 +6,11 @@ import com.fonrouge.base.api.IApiFilter
 import com.fonrouge.base.common.ICommonContainer
 import com.fonrouge.fullStack.lib.UrlParams
 import com.fonrouge.fullStack.lib.toEncodedUrlString
+import com.fonrouge.fullStack.lib.completionToast
+import com.fonrouge.fullStack.lib.dismissStickyToasts
+import com.fonrouge.fullStack.lib.rejectionToast
 import com.fonrouge.fullStack.lib.toast
+import com.fonrouge.fullStack.lib.translatedIfFrameworkDefault
 import com.fonrouge.base.model.BaseDoc
 import com.fonrouge.base.state.ItemState
 import com.fonrouge.base.state.SimpleState
@@ -27,7 +31,7 @@ import io.kvision.html.ButtonSize
 import io.kvision.html.ButtonStyle
 import io.kvision.html.button
 import io.kvision.html.div
-import io.kvision.i18n.gettext
+import io.kvision.i18n.I18n.gettext
 import io.kvision.i18n.tr
 import io.kvision.navbar.Nav
 import io.kvision.panel.flexPanel
@@ -236,6 +240,80 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
     }
 
     /**
+     * Applies the outcome of an upsert to the view's own state: the save buttons and the clean
+     * baseline used to detect unsaved changes.
+     *
+     * Called by [acceptUpsertAction] on every upsert, before and independently of its `block`.
+     * These are not presentation concerns — getting them wrong discards the user's work — so they
+     * must not sit in an overridable argument. A caller that supplies its own `block` changes how
+     * the outcome is announced; it cannot change whether captured input survives a refusal.
+     *
+     * Private for the same reason: an overridable safety check is not a safety check. Subclasses
+     * that need to react to an upsert result have [acceptUpsertAction]'s `block`, which runs after
+     * this and can reuse [defaultUpsertToast].
+     *
+     * Nothing happens unless [ItemState.isWriteComplete]: while a refusal is on screen the form
+     * stays editable, the save buttons stay available for a retry, and [origSerialized] keeps
+     * pointing at the last state the server actually accepted — so a later Cancel still recognises
+     * the rejected edits as unsaved and asks before discarding them.
+     *
+     * Clearing an earlier refusal also happens here rather than in the toast functions, because a
+     * `block` is free to present an outcome without showing a toast at all — `ViewList` navigates
+     * away on success — and the stale refusal would otherwise stay pinned to the screen.
+     *
+     * @param itemState the result returned by the item service.
+     * @param crudTask the action that produced [itemState].
+     * @param data the transformed form data that was submitted.
+     */
+    private fun applyUpsertOutcome(itemState: ItemState<T>, crudTask: CrudTask, data: T) {
+        // A new outcome for this form supersedes whatever refusal is still on screen, whether or
+        // not the `block` about to run chooses to say anything.
+        dismissStickyToasts()
+
+        if (itemState.isWriteComplete.not()) return
+
+        if (crudTask == CrudTask.Update) {
+            origSerialized = Json.encodeToString(
+                serializer = configView.commonContainer.itemSerializer,
+                value = data
+            )
+        }
+        navButtonCancel?.hide()
+        navButtonAccept?.hide()
+        navButtonBack?.show()
+        buttonCancel?.hide()
+        buttonAccept?.hide()
+        buttonBack?.show()
+    }
+
+    /**
+     * The default notification shown by [acceptUpsertAction], exposed so that a caller supplying
+     * its own `block` can still reuse it: `acceptUpsertAction { defaultUpsertToast(it); extra(it) }`.
+     *
+     * A completed write ([ItemState.isWriteComplete]) is announced and closes the view as the toast
+     * fades. Anything else is a refusal the user has to act on, so its toast is sticky — it stays
+     * until dismissed, and it does not close the view, because doing so would take the form and
+     * everything captured in it away along with the explanation.
+     *
+     * Only the framework's own default messages are translated; text written by the server passes
+     * through untouched (see `translatedIfFrameworkDefault`).
+     */
+    fun defaultUpsertToast(itemState: ItemState<T>) {
+        if (itemState.isWriteComplete) {
+            itemState.completionToast(
+                message = if (itemState.noDataModified == true) "${gettext("No data was modified")} ..." else null,
+                options = ToastOptions(
+                    callback = { backCloseAction() },
+                    close = true,
+                    stopOnFocus = true,
+                ),
+            )
+        } else {
+            itemState.rejectionToast()
+        }
+    }
+
+    /**
      * Executes an "upsert" action (either update or insert) for the current item, using form validation,
      * data transformation, and API service calls. Optionally displays toast notifications and updates UI components.
      *
@@ -243,31 +321,7 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
      *              an [ItemState] parameter, which contains information about the success, error, or status of the operation.
      */
     fun acceptUpsertAction(
-        block: ((ItemState<T>) -> Unit)? = {
-            navButtonCancel?.hide()
-            navButtonAccept?.hide()
-            navButtonBack?.show()
-            buttonCancel?.hide()
-            buttonAccept?.hide()
-            buttonBack?.show()
-            val toastOptions = ToastOptions(
-                callback = { backCloseAction() },
-                close = true,
-                stopOnFocus = true
-            )
-            if (it.hasError.not()) {
-                Toast.info(
-                    message = if (it.noDataModified == true) "${gettext("No data was modified")} ..." else it.msgOk
-                        ?: "info...",
-                    options = toastOptions
-                )
-            } else {
-                Toast.warning(
-                    message = it.msgError ?: "!",
-                    options = toastOptions
-                )
-            }
-        },
+        block: ((ItemState<T>) -> Unit)? = { defaultUpsertToast(it) },
     ) {
         val crudAction = crudTask
         if (crudAction != null && crudAction in arrayOf(CrudTask.Create, CrudTask.Update)) {
@@ -284,13 +338,15 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
                             item = data,
                             apiFilter = apiFilter,
                         ) { itemResponse ->
+                            // Runs before — and independently of — `block`. Overriding `block`
+                            // replaces how the outcome is announced, never whether the user's work
+                            // is protected from it.
+                            applyUpsertOutcome(
+                                itemState = itemResponse,
+                                crudTask = crudAction,
+                                data = data,
+                            )
                             block?.invoke(itemResponse)
-                            if (crudAction == CrudTask.Update && itemResponse.hasError.not()) {
-                                origSerialized = Json.encodeToString(
-                                    serializer = configView.commonContainer.itemSerializer,
-                                    value = data
-                                )
-                            }
                             itemResponse
                         }
                     } else {
@@ -353,6 +409,9 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
             }
         }
         if (proceedClose) {
+            // Toasts live on document.body, so a sticky one would outlive this view and follow the
+            // user to the next screen.
+            dismissStickyToasts()
             if (viewModal != null) {
                 viewModal?.hide()
             } else if (window.history.length > 1) {

@@ -41,6 +41,26 @@ data class ItemState<T>(
     override val hasError: Boolean get() = state == State.Error
 
     /**
+     * Whether the caller's write intent was satisfied — either the write happened, or it was
+     * unnecessary because nothing had changed.
+     *
+     * This is the distinction a UI needs in order to decide whether the user is finished: a form
+     * may close, and its clean baseline may be reset, only when this is `true`. [isRejected] alone
+     * is too strict, because a no-op update is refused ([State.Warn]) yet leaves the store in
+     * exactly the state the user asked for; repositories mark that case with [noDataModified].
+     *
+     * [noDataModified] is deliberately only honoured for [State.Warn]. On its own it says nothing
+     * more than "no mutation occurred", which is equally true of a write that failed outright —
+     * `Coll.upsertOne` sets exactly that pairing when a document is neither matched nor upserted.
+     * Treating [State.Error] as complete because nothing was written would close the form and
+     * discard the user's input over a failure.
+     *
+     * Discarding captured input while this is `false` loses the user's work.
+     */
+    val isWriteComplete: Boolean
+        get() = state == State.Ok || (state == State.Warn && noDataModified == true)
+
+    /**
      * Secondary constructor for the `ItemState` class that initializes its properties
      * based on a `SimpleState` instance.
      *

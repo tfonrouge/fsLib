@@ -198,6 +198,7 @@ class MongoConformanceFixture : ConformanceFixture {
         writesChangeLog = false,
         enforcesDeleteExactlyOnce = true,
         enforcesInitLifecycle = true,
+        shortCircuitsNoOpUpdates = true,
     )
 
     override fun freshRepo(): IRepository<CItem, String, ApiFilter, String> = CItemMongoRepository(MongoTestSupport.freshBuilder())

@@ -214,8 +214,11 @@ abstract class SqlRepository<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UI
         onValidate(currentApiItem, currentItem).also { if (it.hasError) return it.asItemState() }
         val origJson = Json.encodeToJsonElement(commonContainer.itemSerializer, orig) as JsonObject
         val newJson = Json.encodeToJsonElement(commonContainer.itemSerializer, currentItem) as JsonObject
+        // Mirrors `Coll.updateOne`: `noDataModified` marks this as the benign refusal — nothing
+        // needed writing — so clients can distinguish it from a refusal the user must act on.
         if (origJson == newJson) return ItemState(
             state = State.Warn,
+            noDataModified = true,
             msgError = "Update skipped - no changes detected in item"
         )
         var result = false

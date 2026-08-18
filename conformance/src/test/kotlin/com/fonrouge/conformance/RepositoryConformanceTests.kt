@@ -6,6 +6,7 @@ import com.fonrouge.base.api.CrudTask
 import com.fonrouge.base.api.IApiItem
 import com.fonrouge.base.common.ICommonContainer
 import com.fonrouge.base.state.SimpleState
+import com.fonrouge.base.state.State
 import com.fonrouge.fullStack.repository.IRolePermissionProvider
 import com.fonrouge.fullStack.repository.PermissionRegistry
 import io.ktor.server.application.ApplicationCall
@@ -228,6 +229,48 @@ abstract class RepositoryConformanceTests {
         assertEquals("Valid", repo.findById("u1", ApiFilter())?.name, "$name: the row must be unchanged")
         assertTrue(probe.afterHookCalls.isEmpty(), "$name: no after-hooks (got ${probe.afterHookCalls})")
         assertEquals(0, probe.changeLogProbe.calls, "$name: no change-log entry on validation failure")
+    }
+
+    // ── No-op update classification ─────────────────────────────
+
+    /**
+     * An update that would change nothing is refused with [State.Warn], and that refusal carries
+     * `noDataModified = true` to mark it as the benign kind.
+     *
+     * The flag is what separates "nothing needed saving" from "the server turned this down". A
+     * client that cannot tell them apart either reports a refused write as a success — `msgOk`
+     * defaults to `MSG_OK`, so it literally announces "Operation successful" — or keeps the form
+     * open on a harmless no-op. This exercises the real engines rather than a hand-built
+     * [com.fonrouge.base.state.ItemState], so removing the flag from a repository fails here.
+     */
+    @Test
+    fun noOpUpdateIsWarnFlaggedAsNoDataModified() = runTest {
+        Assume.assumeTrue(
+            "${fixture.profile.name} does not short-circuit no-op updates",
+            fixture.profile.shortCircuitsNoOpUpdates,
+        )
+        val name = fixture.profile.name
+        val repo = fixture.freshRepo()
+        val seeded = CItem("n1", "Unchanged", 1.0)
+        assertFalse(repo.insertOne(seeded, ApiFilter()).hasError, "$name: seed must succeed")
+
+        // Re-submit byte-for-byte identical data: the engine must refuse to write.
+        val result = repo.updateOne(seeded, ApiFilter())
+
+        assertEquals(State.Warn, result.state, "$name: a no-op update must be refused with Warn")
+        assertEquals(true, result.noDataModified, "$name: a no-op refusal must set noDataModified")
+        assertFalse(result.hasError, "$name: a no-op is not an error")
+
+        // The two properties a client actually branches on, pinned together: not a success, but
+        // also not something the user has to come back and fix.
+        assertTrue(result.isRejected, "$name: a refused write must not read as succeeded")
+        assertTrue(result.isWriteComplete, "$name: a no-op still leaves the store as asked")
+
+        // A real change on the same row must still go through, so the short-circuit is not just
+        // rejecting every update.
+        val changed = repo.updateOne(seeded.copy(name = "Changed"), ApiFilter())
+        assertFalse(changed.hasError, "$name: a genuine update must still succeed")
+        assertEquals("Changed", repo.findById("n1", ApiFilter())?.name, "$name: the row must change")
     }
 
     // ── I1: canonical hook order (target — assume-gated) ────────

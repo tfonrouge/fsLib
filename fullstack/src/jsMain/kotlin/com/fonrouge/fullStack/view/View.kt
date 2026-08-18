@@ -10,6 +10,7 @@ import com.fonrouge.fullStack.config.ConfigView
 import com.fonrouge.fullStack.help.IHelpModule
 import com.fonrouge.fullStack.layout.helpButtons
 import com.fonrouge.fullStack.lib.UrlParams
+import com.fonrouge.fullStack.lib.dismissStickyToasts
 import com.fonrouge.fullStack.lib.toEncodedUrlString
 import com.fonrouge.fullStack.lib.toast
 import com.fonrouge.fullStack.tabulator.TabulatorMenuItem
@@ -448,6 +449,12 @@ abstract class View<FILT : IApiFilter<*>>(
         this@View.mainView = mainView
         div {
             addBeforeDisposeHook {
+                // Sticky toasts are appended to document.body and have no timeout, so a refusal
+                // raised by this view would otherwise follow the user to the next screen. This sits
+                // in the hook rather than in `onBeforeDispose` so that a subclass overriding that
+                // method cannot drop it, and covers every teardown path — modal close control and
+                // browser navigation included, not just `backCloseAction`.
+                dismissStickyToasts()
                 onBeforeDispose()
             }
             window.addEventListener("mousemove", {

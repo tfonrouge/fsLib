@@ -408,7 +408,11 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
      * @param apiFilter An instance of a filter to be applied to the API list.
      * @param countType Specifies the type of count operation to be performed.
      * @param debug Optional debug flag to control debug output.
-     * @param postProcessList Optional function to further process the list after retrieval.
+     * @param postProcessList Optional function to further process the list after retrieval. It is a
+     *        suspending function so that it runs inside this pipeline's coroutine scope: post-processing
+     *        commonly needs I/O of its own (a follow-up query, a lookup against another collection), and
+     *        a non-suspending type would force callers to `runBlocking` inside an already-suspending call,
+     *        parking a thread on the database dispatcher.
      * @return ListState containing the processed list data, pagination information, and state status.
      */
     @Suppress("MemberVisibilityCanBePrivate")
@@ -419,7 +423,7 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
         apiFilter: FILT = commonContainer.apiFilterInstance(),
         countType: CountType = CountType.PreLookup,
         debug: Boolean = this.debug,
-        postProcessList: ((List<T>) -> List<T>)? = null,
+        postProcessList: (suspend (List<T>) -> List<T>)? = null,
     ): ListState<T> {
         ensureOpen().also {
             if (it.hasError) return ListState(state = it.state, msgOk = it.msgOk, msgError = it.msgError)
@@ -482,7 +486,8 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
      * @param countType Specifies the type of count operation to be performed, either pre-lookup or post-lookup.
      * @param debug Optional flag to enable or disable debug mode for logging or tracing the operation.
      * @param lookupWrappers A list of `LookupWrapper` objects to be applied in the lookup pipeline.
-     * @param postProcessList Optional lambda function to post-process the resulting list after fetching data.
+     * @param postProcessList Optional lambda function to post-process the resulting list after fetching
+     *        data; suspending, so it can perform its own I/O without blocking (see the overload above).
      * @return A `ListState` object containing the processed list along with related metadata such as pagination information.
      */
     @Suppress("unused")
@@ -492,7 +497,7 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
         countType: CountType = CountType.PreLookup,
         debug: Boolean = this.debug,
         lookupWrappers: List<LookupWrapper<*, *>> = emptyList(),
-        postProcessList: ((List<T>) -> List<T>)? = null,
+        postProcessList: (suspend (List<T>) -> List<T>)? = null,
     ): ListState<T> = apiListProcess(
         call = call,
         apiRequestParams = ApiRequestParams(
@@ -1459,8 +1464,10 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
         // write `try`. A no-change skip or a validation rejection must return without reaching the
         // catch's after-hooks (mirrors insertOne / SqlRepository ordering).
         apiItem = apiItem.copy(item = apiItem.item.copyItemWithPrimaryConstructorParameters())
+        // Same benign-refusal classification as `updateOne`: nothing needed writing.
         if (apiItem.item.json == orig.json) return ItemState(
             state = State.Warn,
+            noDataModified = true,
             msgError = "Update skipped - no changes detected in item"
         )
         onValidate(
@@ -1480,7 +1487,8 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
         }
         val itemState = when (result.modifiedCount) {
             1L -> findItemStateById(id = id)
-            0L -> ItemState(state = State.Warn, msgError = "Field not modified")
+            // The driver matched the document but changed nothing: a no-op, not a failure.
+            0L -> ItemState(state = State.Warn, noDataModified = true, msgError = "Field not modified")
             else -> ItemState(isOk = false)
         }
         onAfterUpdateAction(apiItem = apiItem, orig = orig, result = itemState.hasError.not())
@@ -1603,8 +1611,14 @@ abstract class Coll<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>, UID : Any>(
         // write `try`, so a no-change skip or a validation rejection returns without reaching the
         // catch's after-hooks (mirrors insertOne / SqlRepository ordering).
         apiItem1 = apiItem1.copy(item = apiItem1.item.copyItemWithPrimaryConstructorParameters())
+        // `noDataModified` marks this refusal as the benign kind: the write was skipped because
+        // there was nothing to write, not because anything was wrong with the input. Clients use the
+        // flag to tell a harmless no-op apart from a refusal the user has to act on. The sibling
+        // no-op path in `upsertOne` already sets it; omitting it here made this branch fall through
+        // to `msgOk` (which defaults to MSG_OK) and be reported to the user as a successful save.
         if (orig != null && apiItem1.item.json == orig.json) return ItemState(
             state = State.Warn,
+            noDataModified = true,
             msgError = "Update skipped - no changes detected in item"
         )
         onValidate(

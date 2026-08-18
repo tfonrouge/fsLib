@@ -4,12 +4,13 @@ import com.fonrouge.base.api.CallType
 import com.fonrouge.base.api.CrudTask
 import com.fonrouge.base.api.IApiFilter
 import com.fonrouge.base.common.ICommonContainer
-import com.fonrouge.fullStack.lib.toast
+import com.fonrouge.fullStack.lib.completionToast
+import com.fonrouge.fullStack.lib.rejectionToast
 import com.fonrouge.base.model.BaseDoc
 import com.fonrouge.base.state.ItemState
 import com.fonrouge.fullStack.callItemService
 import com.fonrouge.fullStack.config.ConfigViewContainer
-import io.kvision.i18n.gettext
+import io.kvision.i18n.I18n.gettext
 import io.kvision.modal.Confirm
 import io.kvision.modal.ModalSize
 import io.kvision.toast.Toast
@@ -90,7 +91,10 @@ abstract class ViewDataContainer<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>
             item = item,
             apiFilter = apiFilter,
         ) { itemState ->
-            if (itemState.hasError.not()) {
+            // The delete pre-check. `isRejected` rather than `isWriteComplete`: this is a Query, so
+            // there is no write for `noDataModified` to describe — a Warn here means the check said
+            // no (dependent records, for instance), and used to open the confirmation anyway.
+            if (itemState.isRejected.not()) {
                 val numSelectedRows = if (this is ViewList<*, *, *, *>)
                     tabulator?.getSelectedRows()?.size ?: 0 else null
                 val deleteWord = gettext("Delete")
@@ -120,15 +124,14 @@ abstract class ViewDataContainer<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>
                             item = item,
                             apiFilter = apiFilter,
                         ) { itemState1 ->
-                            if (itemState1.hasError.not()) {
-                                Toast.success(
-                                    message = itemState1.msgOk ?: "Delete action successful ...",
-                                )
+                            // `hasError` covers only State.Error, so a State.Warn refusal used to
+                            // run `onSuccess` and report the delete as done. Routed through the
+                            // shared state-to-toast path: correct severity, translated fallbacks.
+                            if (itemState1.isWriteComplete) {
+                                itemState1.completionToast()
                                 onSuccess?.invoke()
                             } else {
-                                Toast.warning(
-                                    message = itemState1.msgError ?: "Delete action failed ...",
-                                )
+                                itemState1.rejectionToast()
                                 onFail?.invoke(itemState1)
                             }
                             itemState1
@@ -137,7 +140,8 @@ abstract class ViewDataContainer<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>
                 )
                 modal.show()
             } else {
-                itemState.toast()
+                // A refused pre-check is something to read and act on, not a toast that fades.
+                itemState.rejectionToast()
                 onFail?.invoke(itemState)
             }
             itemState

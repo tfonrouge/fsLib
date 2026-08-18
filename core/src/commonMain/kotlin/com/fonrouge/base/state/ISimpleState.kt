@@ -24,4 +24,18 @@ interface ISimpleState {
     val msgError: String?
     val dateTime: OffsetDateTime
     val hasError: Boolean
+
+    /**
+     * Whether the operation did **not** succeed, for any reason.
+     *
+     * [hasError] answers a narrower question — it is `true` only for [State.Error], i.e. something
+     * broke. A repository can also refuse a write with [State.Warn] and no exception at all: see
+     * the no-op short-circuits in `Coll.updateOne` and `SqlRepository.updateItem`. Those refusals
+     * are not errors, but they are not successes either, and code that branches on [hasError]
+     * silently reports them as successful.
+     *
+     * Any caller deciding whether to announce success to the user, close a form, or discard
+     * captured input must branch on this property rather than on [hasError].
+     */
+    val isRejected: Boolean get() = state != State.Ok
 }

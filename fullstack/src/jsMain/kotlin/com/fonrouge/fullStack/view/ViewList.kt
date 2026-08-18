@@ -6,6 +6,7 @@ import com.fonrouge.base.api.IApiFilter
 import com.fonrouge.base.api.setMasterItemId
 import com.fonrouge.base.common.ICommonContainer
 import com.fonrouge.base.lib.iconCrud
+import com.fonrouge.fullStack.lib.rejectionToast
 import com.fonrouge.fullStack.lib.toast
 import com.fonrouge.base.model.BaseDoc
 import com.fonrouge.base.state.ItemState
@@ -427,10 +428,13 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
         }
         if (masterViewItem?.crudTask == CrudTask.Update) {
             masterViewItem?.acceptUpsertAction { itemResponse ->
-                if (itemResponse.state != State.Error) {
+                // `state != State.Error` let a State.Warn refusal through as though the master had
+                // saved, navigating on and leaving the refusal unshown. `isWriteComplete` is the
+                // predicate that separates "saved, or nothing needed saving" from "turned down".
+                if (itemResponse.isWriteComplete) {
                     callBlock()
                 } else {
-                    Toast.danger(itemResponse.msgError ?: "unknown error")
+                    itemResponse.rejectionToast()
                 }
             }
         } else {

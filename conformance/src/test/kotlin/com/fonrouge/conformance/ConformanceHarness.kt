@@ -7,6 +7,7 @@ import com.fonrouge.base.model.BaseDoc
 import com.fonrouge.base.sqlDb.SqlDatabase
 import com.fonrouge.base.state.ItemState
 import com.fonrouge.base.state.SimpleState
+import com.fonrouge.base.state.State
 import com.fonrouge.fullStack.memoryDb.InMemoryRepository
 import com.fonrouge.fullStack.repository.IChangeLogRepository
 import com.fonrouge.fullStack.repository.IRepository
@@ -121,6 +122,12 @@ data class EngineProfile(
     val enforcesDeleteExactlyOnce: Boolean,
     /** I4: open/ensureOpen invokes onAfterOpen exactly once and surfaces init failures. */
     val enforcesInitLifecycle: Boolean,
+    /**
+     * Does the engine short-circuit an update that would change nothing, returning [State.Warn]
+     * with `noDataModified = true`? mongo=true, sql=true, memory=false (memory writes
+     * unconditionally and reports [State.Ok]).
+     */
+    val shortCircuitsNoOpUpdates: Boolean,
 )
 
 /** Exposes the recorded lifecycle-hook call order from an instrumented repository. */
@@ -297,7 +304,7 @@ private class FailingInitMemoryRepository : CItemMemoryRepository(), InitProbe {
 
 /** Memory engine fixture — permission-free (I6 exempt), canonical hook order already enforced (I1). */
 class MemoryConformanceFixture : ConformanceFixture {
-    override val profile = EngineProfile(name = "InMemory", enforcesPermissions = false, enforcesCanonicalHookOrder = true, writesChangeLog = false, enforcesDeleteExactlyOnce = true, enforcesInitLifecycle = true)
+    override val profile = EngineProfile(name = "InMemory", enforcesPermissions = false, enforcesCanonicalHookOrder = true, writesChangeLog = false, enforcesDeleteExactlyOnce = true, enforcesInitLifecycle = true, shortCircuitsNoOpUpdates = false)
     override fun freshRepo(): IRepository<CItem, String, ApiFilter, String> = CItemMemoryRepository()
     override fun gateClosedRepo(): IRepository<CItem, String, ApiFilter, String> = GateClosedMemoryRepository()
     override fun recordingRepo(): IRepository<CItem, String, ApiFilter, String> = RecordingMemoryRepository()
@@ -410,7 +417,7 @@ private class FailingInitSqlRepository(sqlDatabase: SqlDatabase) : CItemSqlRepos
 
 /** SQL engine fixture (H2-backed) — enforces permissions (I6/P1.9). */
 class SqlConformanceFixture : ConformanceFixture {
-    override val profile = EngineProfile(name = "SQL", enforcesPermissions = true, enforcesCanonicalHookOrder = true, writesChangeLog = true, enforcesDeleteExactlyOnce = true, enforcesInitLifecycle = true)
+    override val profile = EngineProfile(name = "SQL", enforcesPermissions = true, enforcesCanonicalHookOrder = true, writesChangeLog = true, enforcesDeleteExactlyOnce = true, enforcesInitLifecycle = true, shortCircuitsNoOpUpdates = true)
     override fun freshRepo(): IRepository<CItem, String, ApiFilter, String> = CItemSqlRepository(createH2CItemDatabase())
     override fun gateClosedRepo(): IRepository<CItem, String, ApiFilter, String> = GateClosedSqlRepository(createH2CItemDatabase())
     override fun recordingRepo(): IRepository<CItem, String, ApiFilter, String> = RecordingSqlRepository(createH2CItemDatabase())
