@@ -265,17 +265,31 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
      * @param crudTask the action that produced [itemState].
      * @param data the transformed form data that was submitted.
      */
-    private fun applyUpsertOutcome(itemState: ItemState<T>, crudTask: CrudTask, data: T) {
+    internal fun applyUpsertOutcome(itemState: ItemState<T>, crudTask: CrudTask, data: T) {
         // A new outcome for this form supersedes whatever refusal is still on screen, whether or
         // not the `block` about to run chooses to say anything.
         dismissStickyToasts()
 
         if (itemState.isWriteComplete.not()) return
 
+        // The accepted item is view state: everything derived from `item` — the title, the context
+        // menu, a bound notice — otherwise keeps rendering the pre-write world, and during a Create
+        // that world has `item == null`. Republishing it here re-runs the bindings.
+        //
+        // Null-guarded: a write that completed without returning an item must not blank a form that
+        // is currently showing one.
+        itemState.item?.let { itemObservable.value = it }
+
         if (crudTask == CrudTask.Update) {
+            // Derived from what the form now holds, not from `data`. Publishing above re-populates
+            // the form through the `itemObservable` subscription, so a server that normalised a
+            // value leaves the form showing something the submitted `data` no longer matches — and
+            // this baseline is what a later Cancel compares against to decide whether to warn about
+            // unsaved edits. Computing it the same way `backCloseAction` does keeps the two in step
+            // by construction.
             origSerialized = Json.encodeToString(
                 serializer = configView.commonContainer.itemSerializer,
-                value = data
+                value = formPanel?.let { transformData(it.getData()) } ?: itemState.item ?: data
             )
         }
         navButtonCancel?.hide()
@@ -284,6 +298,39 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
         buttonCancel?.hide()
         buttonAccept?.hide()
         buttonBack?.show()
+    }
+
+    /**
+     * Handles a **completed** write from the Accept buttons — never a refusal; see
+     * [dispatchUpsertResult]. The default announces it with [defaultUpsertToast].
+     *
+     * This is the seam for a view whose *structure* depends on the saved item. Values are already
+     * covered, by [applyUpsertOutcome] republishing the item and by bindings on [itemObservable];
+     * structure is not. A section whose existence is decided by a plain `if (item?…)` inside
+     * `pageItemBody()` was settled while the form was being built — when a Create still had
+     * `item == null` — and no observable re-runs it. A view in that position overrides this and
+     * navigates to the saved record, rebuilding the page through the normal path with the item in
+     * hand.
+     *
+     * @param itemState the result of the write; [ItemState.isWriteComplete] is guaranteed `true`.
+     */
+    protected open fun onUpsertResult(itemState: ItemState<T>) = defaultUpsertToast(itemState)
+
+    /**
+     * Routes an upsert result: a completed write goes to the overridable [onUpsertResult], anything
+     * else is presented by the framework as a refusal.
+     *
+     * This is [acceptUpsertAction]'s default `block`, so *both* framework-built Accept buttons —
+     * the one in the form and the one in the navbar — reach [onUpsertResult] without either having
+     * to opt in. Routing from a single call site is deliberate: wiring the buttons individually is
+     * how one of them silently stops honouring an override.
+     *
+     * Splitting refusals off here is what lets [onUpsertResult] promise a completed write. An
+     * override that only knows how to handle success cannot suppress the sticky refusal toast, and
+     * never sees an [ItemState] whose `item` is missing because the write did not happen.
+     */
+    internal fun dispatchUpsertResult(itemState: ItemState<T>) {
+        if (itemState.isWriteComplete) onUpsertResult(itemState) else itemState.rejectionToast()
     }
 
     /**
@@ -321,7 +368,7 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
      *              an [ItemState] parameter, which contains information about the success, error, or status of the operation.
      */
     fun acceptUpsertAction(
-        block: ((ItemState<T>) -> Unit)? = { defaultUpsertToast(it) },
+        block: ((ItemState<T>) -> Unit)? = { dispatchUpsertResult(it) },
     ) {
         val crudAction = crudTask
         if (crudAction != null && crudAction in arrayOf(CrudTask.Create, CrudTask.Update)) {
