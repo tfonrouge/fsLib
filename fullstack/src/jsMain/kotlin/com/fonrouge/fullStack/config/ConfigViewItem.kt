@@ -5,6 +5,7 @@ import com.fonrouge.base.api.CrudTask
 import com.fonrouge.base.api.IApiFilter
 import com.fonrouge.base.api.IApiItem
 import com.fonrouge.base.common.ICommonContainer
+import com.fonrouge.fullStack.lib.disposeOnHidden
 import com.fonrouge.fullStack.lib.UrlParams
 import com.fonrouge.fullStack.lib.toEncodedUrlString
 import com.fonrouge.base.model.BaseDoc
@@ -304,7 +305,7 @@ abstract class ConfigViewItem<T : BaseDoc<ID>, ID : Any, V : ViewItem<T, ID, FIL
 
             VMode.modal -> apiItemToParamList(apiItem)?.let { paramList ->
                 val urlParams = (paramList + ("vmode" to "${VMode.modal}"))
-                Modal(
+                val modal = Modal(
                     caption = "",
                     size = ModalSize.XLARGE,
                     animation = false,
@@ -315,7 +316,9 @@ abstract class ConfigViewItem<T : BaseDoc<ID>, ID : Any, V : ViewItem<T, ID, FIL
                         viewModal = this@Modal
                         startDisplayPage()
                     }
-                }.show()
+                }
+                modal.show()
+                modal.disposeOnHidden()
             }
         }
     }

@@ -4,6 +4,108 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [6.2.0] - 2026-08-24
+
+### Fixed
+- Modal views no longer leak. `ConfigView.openView` and `ConfigViewItem.openViewItem` build a fresh
+  `Modal` per call in their `VMode.modal` branch, and `Modal.hide()` does not dispose: KVision
+  registers every modal in its `Root` registry at construction and removes it only in `dispose()`.
+  Closing a modal view therefore retained the whole `View` behind it — grids, date pickers,
+  observable subscriptions — for the life of the page. Both now dispose on `hidden.bs.modal`.
+  (The DOM node was always released; KVision renders only visible modals. What leaked was the object
+  graph.)
+- Cancelling a form with unsaved changes no longer freezes the tab. The prompt used the native
+  blocking `window.confirm()`, which halts the whole page — including an automated browser session —
+  until it is dismissed. It now uses KVision's async `Confirm`, the same modal already used for
+  delete confirmations. Declining leaves the view untouched, as before.
+- The `DataMedia` row-delete column can now actually delete. `columnDefinitionDeleteItem()`'s
+  zero-arg overload resolves its `apiItemFun` through `configViewItem()`, which looks a config up by
+  name convention (`ViewListX` -> `ViewItemX`); an app with no `ViewItem` registered for its
+  `DataMedia` type got `null` there and the button reported `"No configViewItem found"` to the user
+  instead of deleting.
+
+### Added
+- `IViewListDataMedia.initializeViewListDataMedia(dataMediaService, deleteApiItemFun, buildViewListDataMedia)`
+  — the new optional `deleteApiItemFun` routes the delete column through the explicit
+  `columnDefinitionDeleteItem(visible, apiItemFun)` overload, bypassing the name-convention lookup.
+  Declared **before** `buildViewListDataMedia`: that parameter is a function type passed as a
+  trailing lambda at call sites, so a parameter added after it would capture the lambda and break
+  every existing caller at compile time. Omitting it preserves the previous behaviour exactly.
+
+### Known issues
+- Four other framework modals are built the same throwaway way and are **not** yet disposed on
+  close: `withProgress`, `helpButtons.showManualModal`, `userSessionInfoModal`, and
+  `media`'s `IViewListChangeLog`. Same leak, tracked separately.
+- Every displayed `View` registers anonymous `window` `mousemove`/`keydown` listeners that capture
+  the view, and nothing removes them. Disposing a modal releases its widget subtree but not the
+  `View` object itself, and the handlers keep firing for every view ever opened.
+
+### Migration Guide
+- **No migration required.** `deleteApiItemFun` is optional and declared before
+  `buildViewListDataMedia` precisely so existing trailing-lambda call sites keep compiling; omitting
+  it preserves the previous delete-column behaviour exactly. The modal and confirmation fixes are
+  internal to the framework.
+- Docs refreshed in this release: `README.md` and `USAGE-GUIDE.md` still published `6.0.0`
+  coordinates, and `USAGE-GUIDE.md` still taught `hasError` as the way to check a write result
+  without mentioning `isRejected` — the exact mistake `6.1.0` exists to prevent.
+
+## [6.1.1] - 2026-08-19
+
+### Fixed
+- After a completed write, `ViewItem` republishes the accepted item through `itemObservable`.
+  Everything derived from `item` — the title, the context menu, bindings — previously kept rendering
+  the pre-write state, and during a Create that state was `item == null`. Null-guarded: a write that
+  completes without echoing the item back no longer blanks a form that is showing one.
+- The unsaved-changes baseline is derived from what the form holds after that republish, so a server
+  that normalises a submitted value no longer leaves the view looking dirty.
+
+### Added
+- `ViewItem.onUpsertResult(itemState)` — `protected open`, the seam for a view whose *structure*
+  depends on the saved record. Bindings refresh values; a section gated by a plain `if (item?...)` in
+  `pageItemBody()` was settled while the form was built and no observable re-runs it. Such a view
+  overrides this and navigates to the saved record. Only completed writes reach it — refusals are
+  presented by the framework, so an override cannot suppress them.
+
+### Migration Guide
+- Nothing required. Additive; existing overrides and call sites are unaffected.
+
+## [6.1.0] - 2026-08-18
+
+> **Versioning note (recorded retroactively).** This release carries a `feat(state)!` commit — a
+> behavioral break — and by this project's own rule (`CONTRIBUTING.md` step 1: any `!` since the last
+> tag means a major) it should have been `7.0.0`. It was published as a minor, and Maven Central
+> versions are immutable, so the number cannot be corrected. Treat `6.0.0 -> 6.1.0` as a **breaking**
+> upgrade and read the Migration Guide below. This entry and the `6.1.1` one were both written after
+> publication, which is why neither shipped with its release.
+
+### Changed
+- **Breaking (runtime, silent at compile time)**: a repository can refuse a write with `State.Warn`
+  and no exception — `Coll.updateOne` and `SqlRepository` both do for a no-op update. Every client
+  branched on `hasError`, which is true only for `State.Error`, so those refusals were reported as
+  **successes**: `ItemState.msgOk` defaults to `MSG_OK`, so the UI announced "Operation successful"
+  for a write the server had turned down, then closed the form and discarded what the user captured.
+  A refusal now keeps the form open, keeps the save buttons available, and shows a sticky message.
+- **Breaking (visual)**: one state-to-toast path. Severity follows the state, so `State.Error` renders
+  as a danger (red) toast rather than a warning (yellow), a successful save renders as a success
+  (green) toast rather than an info (blue) one, and a state carrying no message is still announced
+  instead of being silently dropped.
+- **Breaking (binary)**: `ISimpleState.toast()` gained parameters and `Coll.apiListProcess`'s
+  `postProcessList` became a suspending function type, so post-processing can do its own I/O without
+  blocking the database dispatcher. Both are source-compatible; consumers must rebuild rather than
+  drop in the jar.
+- Only the framework's own default messages (`MSG_OK`, `MSG_ERROR`) are translated. gettext.js runs
+  its `strfmt` pass over untranslated msgids too, so a `%` followed by digits became `undefined` —
+  and domain messages embed user data, as `Coll.friendlyExceptionMessage` does with duplicate-key
+  values.
+
+### Added
+- `ISimpleState.isRejected` — "did it not succeed", covering `Warn` and `Error`, alongside
+  `hasError`'s narrower "did it break".
+- `ItemState.isWriteComplete` — success, or a benign no-op. `noDataModified` is honoured only for
+  `Warn`: alone it means "nothing was written", which is equally true of an outright failure.
+- `ISimpleState.completionToast()` / `rejectionToast()`, `dismissStickyToasts()`,
+  `STICKY_TOAST_CLASS`, and `ViewItem.defaultUpsertToast()`.
+
 ### Fixed
 - `ViewItem.addSerializedValue` no longer throws `IllegalArgumentException` ("Star projections in type
   arguments are not allowed") at runtime for a star-projected property type — the real case being a
@@ -18,6 +120,17 @@ All notable changes to this project will be documented in this file.
 - `ViewItem.addSerializedValue(property, element: JsonElement)` — a non-reified overload for
   star-projected types outside the id family. Previously `hiddenFields` was `internal` with no public
   door, forcing downstream workarounds through `serverSeeds` (which has different drain semantics).
+
+### Migration Guide
+- **Audit every `hasError` check on a write result.** It answers "did it break", not "did it not
+  succeed". Use `isRejected`, or `ItemState.isWriteComplete` where a benign no-op should count as
+  done. Code left on `hasError` keeps compiling and keeps reporting refused writes as successes.
+- **Expect different toast colours.** Nothing to change; described above so the shift is not
+  mistaken for a regression.
+- **Rebuild against the new artifacts** rather than swapping the jar — `toast()` and
+  `postProcessList` changed signature.
+- **Add `MSG_OK` / `MSG_ERROR` to your catalogue** if your UI is translated; only those two
+  framework defaults are routed through `gettext`.
 
 ## [6.0.0] - 2026-06-23
 

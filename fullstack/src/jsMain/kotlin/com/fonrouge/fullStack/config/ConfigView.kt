@@ -2,6 +2,7 @@ package com.fonrouge.fullStack.config
 
 import com.fonrouge.base.api.IApiFilter
 import com.fonrouge.base.common.ICommon
+import com.fonrouge.fullStack.lib.disposeOnHidden
 import com.fonrouge.fullStack.lib.UrlParams
 import com.fonrouge.fullStack.lib.encodeURIComponent
 import com.fonrouge.fullStack.config.ConfigViewContainer.VMode
@@ -118,7 +119,7 @@ abstract class ConfigView<V : View<FILT>, FILT : IApiFilter<*>>(
             VMode._top -> window.open(url = viewUrl(apiFilter = apiFilter), target = "$vmode")
 
             VMode.modal -> {
-                Modal(
+                val modal = Modal(
                     caption = "",
                     size = ModalSize.XLARGE,
                     animation = false,
@@ -129,7 +130,9 @@ abstract class ConfigView<V : View<FILT>, FILT : IApiFilter<*>>(
                         viewModal = this@Modal
                         startDisplayPage()
                     }
-                }.show()
+                }
+                modal.show()
+                modal.disposeOnHidden()
             }
         }
     }

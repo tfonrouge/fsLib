@@ -2,6 +2,7 @@ package com.fonrouge.utils.view.dataMedia
 
 import com.fonrouge.base.api.CrudTask
 import com.fonrouge.base.fieldName
+import com.fonrouge.base.state.ItemState
 import com.fonrouge.fullStack.lib.format
 import com.fonrouge.fullStack.lib.toDateTimeString
 import com.fonrouge.fullStack.lib.toast
@@ -66,6 +67,7 @@ abstract class IViewListDataMedia<DM : IDataMedia<U, UID>, ID : Any, U : IUser<U
 ) {
     companion object {
         private var dataMediaService: IApiDataMediaService? = null
+        private var deleteApiItemFun: Function<*>? = null
         private var buildViewListDataMedia: ((viewItem: ViewItem<*, *, *>, classifierClass: KClass<*>?) -> IViewListDataMedia<*, *, *, *>)? =
             null
 
@@ -73,15 +75,35 @@ abstract class IViewListDataMedia<DM : IDataMedia<U, UID>, ID : Any, U : IUser<U
          * Initializes the view list data media using the provided data media service and a builder function.
          *
          * @param dataMediaService An instance of `IApiDataMediaService` used for interacting with the media API.
+         * @param deleteApiItemFun The consuming app's generic per-item CRUD function for its `DataMedia`
+         *                         type (e.g. `IDataItemService::dataMedia`), which makes the row-delete
+         *                         column actually delete. `columnDefinitionDeleteItem()` has two overloads:
+         *                         the zero-arg one resolves its `apiItemFun` from `configViewItem()`, which
+         *                         finds a config by *name convention* (`ViewListX` -> `ViewItemX`). An app
+         *                         with no `ViewItem` registered for its `DataMedia` type resolves `null`
+         *                         there, and the delete button reports `"No configViewItem found"` to the
+         *                         user instead of deleting. Passing this parameter routes the column
+         *                         through the explicit overload and sidesteps the lookup entirely.
+         *
+         *                         Declared *before* [buildViewListDataMedia] deliberately: that parameter
+         *                         is a function type and call sites pass it as a trailing lambda, so a new
+         *                         parameter after it would capture the lambda and break every existing
+         *                         caller at compile time.
+         *
+         *                         Left `null`, the column falls back to the zero-arg overload — exactly
+         *                         the previous behaviour, including for an app whose name-convention
+         *                         lookup does resolve.
          * @param buildViewListDataMedia A lambda function that takes a `ViewItem` and an optional classifier class,
          *                               and returns an instance of `IViewListDataMedia`.
          */
         @Suppress("unused")
         fun initializeViewListDataMedia(
             dataMediaService: IApiDataMediaService,
+            deleteApiItemFun: Function<*>? = null,
             buildViewListDataMedia: (viewItem: ViewItem<*, *, *>, classifierClass: KClass<*>?) -> IViewListDataMedia<*, *, *, *>,
         ) {
             this.dataMediaService = dataMediaService
+            this.deleteApiItemFun = deleteApiItemFun
             this.buildViewListDataMedia = buildViewListDataMedia
         }
 
@@ -139,9 +161,17 @@ abstract class IViewListDataMedia<DM : IDataMedia<U, UID>, ID : Any, U : IUser<U
     }
 
     override fun columnDefinitionList(): List<ColumnDefinition<DM>> = listOf(
-        columnDefinitionDeleteItem(
-            visible = crudTask == CrudTask.Update
-        ),
+        // Without an explicit function, fall back to the zero-arg overload rather than hiding the
+        // column: `configViewItem()` resolves by name convention, so an app that registers a
+        // `ViewItem` for its `DataMedia` type has a working delete button today, and hiding it here
+        // would take that away.
+        deleteApiItemFun?.let {
+            @Suppress("UNCHECKED_CAST")
+            columnDefinitionDeleteItem(
+                visible = crudTask == CrudTask.Update,
+                apiItemFun = it as Function<ItemState<DM>>,
+            )
+        } ?: columnDefinitionDeleteItem(visible = crudTask == CrudTask.Update),
         ColumnDefinition(
             title = "#",
             headerHozAlign = Align.CENTER,

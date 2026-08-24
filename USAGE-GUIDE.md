@@ -61,7 +61,7 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.0.0")
+                api("com.fonrouge.fslib:fullstack:6.2.0")
             }
         }
         jvmMain {
@@ -97,7 +97,7 @@ repositories {
 
 dependencies {
     // Use the SNAPSHOT version matching what you published
-    api("com.fonrouge.fslib:fullstack:6.0.0-SNAPSHOT")
+    api("com.fonrouge.fslib:fullstack:6.2.0-SNAPSHOT")
 }
 ```
 
@@ -465,7 +465,7 @@ val repo = InMemoryRepository<Task, String, TaskFilter, String>(
 
 ```kotlin
 // build.gradle.kts (jvmMain)
-implementation("com.fonrouge.fslib:memorydb:6.0.0")
+implementation("com.fonrouge.fslib:memorydb:6.2.0")
 ```
 
 See `samples/fullstack/showcase/` for a complete example using `InMemoryRepository`.
@@ -1021,7 +1021,14 @@ All state types implement `ISimpleState` with:
 - `state`: `Ok`, `Warn`, or `Error`
 - `msgOk` / `msgError`: User-facing messages
 - `dateTime`: Timestamp
-- `hasError`: Computed convenience property
+- `hasError`: `state == Error` — "did it break"
+- `isRejected`: `state != Ok` — "did it **not succeed**" (since 6.1.0)
+
+Use `isRejected`, not `hasError`, to decide whether a write went through. A repository can refuse a
+write with `Warn` and no exception — `Coll.updateOne` and `SqlRepository` do exactly that for an
+update that would change nothing — and `hasError` is `false` for those. `ItemState` adds
+`isWriteComplete` for the case where a benign no-op should count as done, such as a form deciding
+whether it may close.
 
 ---
 

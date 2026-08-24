@@ -77,7 +77,7 @@ Add the dependency to your module's `build.gradle.kts`:
 ```kotlin
 // Version catalog (gradle/libs.versions.toml)
 [versions]
-fslib = "6.0.0"
+fslib = "6.2.0"
 
 [libraries]
 fslib-core = { module = "com.fonrouge.fslib:core", version.ref = "fslib" }
@@ -95,12 +95,12 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.0.0")
+                api("com.fonrouge.fslib:fullstack:6.2.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:memorydb:6.0.0")
+                implementation("com.fonrouge.fslib:memorydb:6.2.0")
             }
         }
     }
@@ -113,12 +113,12 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.0.0")
+                api("com.fonrouge.fslib:fullstack:6.2.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:mongodb:6.0.0")
+                implementation("com.fonrouge.fslib:mongodb:6.2.0")
             }
         }
     }
@@ -131,12 +131,12 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.0.0")
+                api("com.fonrouge.fslib:fullstack:6.2.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:sql:6.0.0")
+                implementation("com.fonrouge.fslib:sql:6.2.0")
             }
         }
     }
@@ -149,13 +149,13 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.0.0")
+                api("com.fonrouge.fslib:fullstack:6.2.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:mongodb:6.0.0")
-                implementation("com.fonrouge.fslib:sql:6.0.0")
+                implementation("com.fonrouge.fslib:mongodb:6.2.0")
+                implementation("com.fonrouge.fslib:sql:6.2.0")
             }
         }
     }
@@ -625,7 +625,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.fonrouge.fslib:fullstack:6.0.0-SNAPSHOT")
+    implementation("com.fonrouge.fslib:fullstack:6.2.0-SNAPSHOT")
 }
 ```
 

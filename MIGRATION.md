@@ -10,9 +10,51 @@ list and the rationale.
 | 3.x → 4.0.0 | Call `open()` at boot (constructors no longer build indexes), plus hook-order and `onQueryDelete` changes. No section here — see the [4.0.0 Migration Guide in CHANGELOG.md](CHANGELOG.md). |
 | [4.x → 5.0.0](#4x--500--explicit-rbac-registration) | **Call `MongoRbac.register(...)` at boot**, provision roles explicitly, or declare enforcement off. Skipping this compiles fine and denies at runtime. |
 | [5.x → 6.0.0](#5x--600--kotlin-24--java-25) | Build with Kotlin 2.4, **deploy on Java 25**. No source changes. |
+| [6.0.0 → 6.1.0](#600--610--refused-writes-are-no-longer-successes) | **Audit every `hasError` check on a write result**, and rebuild rather than swapping the jar. Compiles fine either way; misreports refused writes at runtime. |
+| 6.1.0 → 6.1.1 | Nothing — additive. |
+| 6.1.1 → 6.2.0 | Nothing — additive; the new `deleteApiItemFun` parameter is optional and call-site compatible. |
 
 Skipping releases? Apply **every** section between your version and your target — a migration is not
 optional just because you skipped the release that introduced it.
+
+---
+
+## 6.0.0 → 6.1.0 — refused writes are no longer successes
+
+*Written retroactively: this section did not ship with the release. Note also that 6.1.0 contains a
+breaking change despite its minor version — see the CHANGELOG entry.*
+
+**Symptom if you skip this.** Everything compiles. At runtime, a write the server refused is reported
+to the user as *"Operation successful"*, the form closes, and whatever they had captured is gone.
+
+**Why.** A repository can refuse a write with `State.Warn` and no exception — `Coll.updateOne` and
+`SqlRepository` both do when an update would change nothing. `hasError` is `state == State.Error`, so
+it is `false` for those refusals, and `ItemState.msgOk` defaults to `MSG_OK`.
+
+**What to change.** Anywhere you branch on the result of a write:
+
+```kotlin
+// Before — treats a Warn refusal as success
+if (itemState.hasError.not()) { onSaved() } else { showError() }
+
+// After — "did it not succeed"
+if (itemState.isRejected.not()) { onSaved() } else { showError() }
+
+// Or, where a no-op should count as done (a form deciding whether it may close):
+if (itemState.isWriteComplete) { close() } else { stayOpenForCorrection() }
+```
+
+`hasError` is unchanged and still correct for "did it break". The two new properties are additive.
+
+**Also required.**
+
+- **Rebuild against 6.1.0**; do not drop the jar in. `ISimpleState.toast()` gained parameters and
+  `Coll.apiListProcess`'s `postProcessList` became a suspending function type. Both are
+  source-compatible, so a rebuild is all that is needed.
+- **Add `MSG_OK` and `MSG_ERROR` to your gettext catalogue** if your UI is translated. Only those two
+  framework defaults are translated; server-authored text is passed through untouched by design.
+- **Expect different toast colours** — errors are red rather than yellow, successful saves green
+  rather than blue. Nothing to change; listed so it is not mistaken for a regression.
 
 ---
 

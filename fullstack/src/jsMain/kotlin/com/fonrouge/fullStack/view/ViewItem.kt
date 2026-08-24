@@ -8,6 +8,7 @@ import com.fonrouge.fullStack.lib.UrlParams
 import com.fonrouge.fullStack.lib.toEncodedUrlString
 import com.fonrouge.fullStack.lib.completionToast
 import com.fonrouge.fullStack.lib.dismissStickyToasts
+import com.fonrouge.fullStack.lib.disposeOnHidden
 import com.fonrouge.fullStack.lib.rejectionToast
 import com.fonrouge.fullStack.lib.toast
 import com.fonrouge.fullStack.lib.translatedIfFrameworkDefault
@@ -55,7 +56,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.serializer
 import org.w3c.dom.events.MouseEvent
-import web.prompts.confirm
+import io.kvision.modal.Confirm
 import kotlin.reflect.KClass
 import kotlin.reflect.KProperty1
 
@@ -439,23 +440,7 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
      *                      is displayed to the user.
      */
     fun backCloseAction(confirmCancel: Boolean = false) {
-        var proceedClose = true
-        if (confirmCancel) {
-            try {
-                formPanel?.let { formPanel ->
-                    val s1 = Json.encodeToString(
-                        configView.commonContainer.itemSerializer,
-                        transformData(formPanel.getData())
-                    )
-                    if (s1 != origSerialized) {
-                        proceedClose = confirm("Cancel and forget current changes ?")
-                    }
-                }
-            } catch (e: Exception) {
-                console.warn("exception = ", e)
-            }
-        }
-        if (proceedClose) {
+        fun proceedClose() {
             // Toasts live on document.body, so a sticky one would outlive this view and follow the
             // user to the next screen.
             dismissStickyToasts()
@@ -467,6 +452,37 @@ abstract class ViewItem<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>>(
                 window.close()
             }
         }
+        if (confirmCancel) {
+            try {
+                formPanel?.let { formPanel ->
+                    val s1 = Json.encodeToString(
+                        configView.commonContainer.itemSerializer,
+                        transformData(formPanel.getData())
+                    )
+                    if (s1 != origSerialized) {
+                        // The native `confirm()` this replaced blocks the whole tab (including any
+                        // remote-controlled browser session) until dismissed. `Confirm` is the async
+                        // KVision modal already used for delete confirmations elsewhere in this file.
+                        //
+                        // Constructed rather than raised through `Confirm.show`, which returns no
+                        // handle: `Confirm` is a `Modal`, its buttons only call `hide()`, and a
+                        // hidden modal stays in KVision's registry forever. Without an instance to
+                        // dispose, every cancelled edit would retain one.
+                        val confirm = Confirm(
+                            caption = "Please Confirm",
+                            text = "Cancel and forget current changes?",
+                            yesCallback = { proceedClose() },
+                        )
+                        confirm.show()
+                        confirm.disposeOnHidden()
+                        return
+                    }
+                }
+            } catch (e: Exception) {
+                console.warn("exception = ", e)
+            }
+        }
+        proceedClose()
     }
 
     /**
