@@ -61,7 +61,7 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.2.1")
+                api("com.fonrouge.fslib:fullstack:6.2.2")
             }
         }
         jvmMain {
@@ -97,7 +97,7 @@ repositories {
 
 dependencies {
     // Use the SNAPSHOT version matching what you published
-    api("com.fonrouge.fslib:fullstack:6.2.1-SNAPSHOT")
+    api("com.fonrouge.fslib:fullstack:6.2.2-SNAPSHOT")
 }
 ```
 
@@ -465,7 +465,7 @@ val repo = InMemoryRepository<Task, String, TaskFilter, String>(
 
 ```kotlin
 // build.gradle.kts (jvmMain)
-implementation("com.fonrouge.fslib:memorydb:6.2.1")
+implementation("com.fonrouge.fslib:memorydb:6.2.2")
 ```
 
 See `samples/fullstack/showcase/` for a complete example using `InMemoryRepository`.

@@ -198,9 +198,9 @@ class TabulatorViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
 //            console.warn("RESULT ->", result, "CONTENT_HASHCODE ->", contentHashCode, "diffContentHashCode", diffContentHashCode)
             if (diffContentHashCode) {
                 if (result.data != undefined) {
-                    val selectedRows = jsTabulator?.getSelectedData()?.map { it.asDynamic()["_id"] }?.toTypedArray()
-                    replaceData(toKotlinList(result.data).toTypedArray())
-                    selectedRows?.let { jsTabulator?.selectRow(selectedRows) }
+                    pushPreservingSelection(jsTabulator) {
+                        replaceData(toKotlinList(result.data).toTypedArray())
+                    }
                 }
             }
         }
@@ -237,7 +237,11 @@ class TabulatorViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
                 if (jsonObj.data == undefined) {
                     jsonObj.data = js("[]")
                 }
-                jsonObj.contentHashCode = JSON.stringify(jsonObj.data).hashCode()
+                // Hash rows AND pagination metadata: the footer counter renders last_row, and a
+                // total can change while the current page's rows stay identical (a new row sorting
+                // onto another page). Data-only hashing skipped the push — and with it the redraw
+                // that repaints the counter. See listContentHash.
+                jsonObj.contentHashCode = listContentHash(jsonObj)
                 if (jsonObj.contentHashCode != undefined) {
                     this@TabulatorViewList.diffContentHashCode =
                         (jsonObj.contentHashCode as? Int) != this@TabulatorViewList.contentHashCode

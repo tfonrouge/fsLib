@@ -14,6 +14,7 @@ list and the rationale.
 | 6.1.0 → 6.1.1 | Nothing — additive. |
 | 6.1.1 → 6.2.0 | Nothing — additive; the new `deleteApiItemFun` parameter is optional and call-site compatible. |
 | 6.2.0 → 6.2.1 | Nothing — internal fix (stale pagination counter after programmatic list refreshes). |
+| 6.2.1 → 6.2.2 | Nothing — completes the 6.2.1 counter fix (metadata-only changes now repaint). Skip 6.2.1 and go straight here. |
 
 Skipping releases? Apply **every** section between your version and your target — a migration is not
 optional just because you skipped the release that introduced it.

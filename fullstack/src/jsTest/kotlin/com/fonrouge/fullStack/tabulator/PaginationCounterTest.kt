@@ -13,6 +13,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 /**
  * Pins the pagination-counter contract for programmatic refreshes.
@@ -83,6 +84,8 @@ class PaginationCounterTest {
             data = null,
             dataUpdateOnEdit = false,
             options = TabulatorOptions(
+                selectableRows = 1, // matches defaultTabulatorOptions; selectRow is inert without it
+                index = "_id", // matches defaultTabulatorOptions; row lookup by _id fails without it
                 pagination = true,
                 paginationMode = PaginationMode.REMOTE,
                 paginationSize = size,
@@ -204,6 +207,101 @@ class PaginationCounterTest {
             Unit
         }
     }
+
+    // ── the redraw-gate hole (external review finding) ──────────
+
+    /**
+     * The gate's input must treat a metadata-only change as a change. A created row can sort onto
+     * another page: the current page's rows stay byte-identical while `last_row` moves, and a
+     * data-only hash skipped the push — and with it the redraw that repaints the counter.
+     */
+    @Test
+    fun contentHashChangesWhenOnlyTheTotalChanges() {
+        fun response(lastRow: Int): dynamic {
+            val o = obj { }
+            o.data = rows(5)
+            o.last_page = 1
+            o.last_row = lastRow
+            return o
+        }
+        assertEquals(
+            listContentHash(response(5)),
+            listContentHash(response(5)),
+            "identical responses must hash identically — the no-op optimisation depends on it",
+        )
+        assertNotEquals(
+            listContentHash(response(5)),
+            listContentHash(response(6)),
+            "a total change with identical rows must count as a change, or the counter goes stale",
+        )
+    }
+
+    /**
+     * The same scenario at the DOM: the page's five rows are unchanged, only the total grew.
+     * After the (now no longer skipped) push, the footer must read the new total.
+     */
+    @Test
+    fun sameRowsWithNewTotalRepaintTheCounter(): Promise<Unit> {
+        val tab = buildTable(size = 5) { 5 }
+        return delay(300).then {
+            assertEquals("1-5 / 5", counterText())
+        }.then {
+            // a sixth row exists but sorts onto page 2: page 1's rows are identical
+            refreshRemoteRowCountEstimate(
+                jsTabulator = tab.jsTabulator,
+                lastPage = 2,
+                lastRow = 6,
+                page = 1,
+                size = 5,
+                dataLength = 5,
+            )
+            pushLikeApiCall(tab, rows(5))
+            delay(300)
+        }.then {
+            assertEquals("1-5 / 6", counterText(), "the footer must show the new total for identical page rows")
+            Unit
+        }
+    }
+
+    // ── behaviours the fix must not break ───────────────────────
+
+    /** Row selection survives a refresh, through the shipped helper `apiCall` itself uses. */
+    @Test
+    fun selectionSurvivesARefresh(): Promise<Unit> {
+        val tab = buildTable(size = 100) { 5 }
+        return delay(300).then {
+            tab.jsTabulator.asDynamic().selectRow(arrayOf("id2"))
+            assertEquals(1, selectedIds(tab).size, "row id2 selected before the refresh")
+        }.then {
+            pushPreservingSelection(tab.jsTabulator) {
+                pushLikeApiCall(tab, rows(6))
+            }
+            delay(300)
+        }.then {
+            assertEquals(listOf("id2"), selectedIds(tab), "the same row must be selected after the refresh")
+            Unit
+        }
+    }
+
+    /** The page-size selector still drives a remote reload with a correct counter. */
+    @Test
+    fun pageSizeChangeReloadsWithACorrectCounter(): Promise<Unit> {
+        val tab = buildTable(size = 100) { 250 }
+        return delay(300).then {
+            assertEquals("1-100 / 250", counterText())
+        }.then {
+            tab.jsTabulator.asDynamic().setPageSize(50)
+            delay(300)
+        }.then {
+            assertEquals("1-50 / 250", counterText(), "size 50 must reload page 1 with the same total")
+            Unit
+        }
+    }
+
+    private fun selectedIds(tab: Tabulator<dynamic>): List<String> =
+        tab.jsTabulator.asDynamic().getSelectedData()
+            .unsafeCast<Array<dynamic>>()
+            .map { "${it["_id"]}" }
 
     companion object {
         private var counter = 0

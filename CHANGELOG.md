@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [6.2.2] - 2026-08-25
+
+### Fixed
+- Completes the `6.2.1` pagination-counter fix, which external review found could still leave the
+  footer stale in one case: a write that changes the total while leaving the current page's rows
+  byte-identical — a created row that sorts onto another page. `TabulatorViewList`'s redraw gate
+  hashed only the response's `data`, so the refreshed internal estimate was never repainted because
+  the identical rows skipped the push. The gate's hash now covers `last_page`/`last_row` as well
+  (`listContentHash`): a metadata-only change triggers the redraw, while the no-op optimisation is
+  preserved when neither rows nor totals moved. The hash also travels in `ApiList.contentHashCode`;
+  no engine or known consumer reads it server-side, so widening its input is client-local.
+- The selection-preserving refresh is now shared shipped code (`pushPreservingSelection`), used by
+  `apiCall` and driven directly by the browser suite — previously the tests duplicated the sequence.
+
+### Added (tests)
+- Browser coverage for the gaps the review named: metadata-only change repaints the counter
+  ("1-5 / 6" with identical page rows), row selection survives a refresh, and the page-size selector
+  still reloads with a correct counter. The two new guards are mutation-tested.
+
+### Migration Guide
+- Nothing required. Internal to `TabulatorViewList`; no API changed.
+
 ## [6.2.1] - 2026-08-25
 
 ### Fixed
