@@ -13,6 +13,7 @@ list and the rationale.
 | [6.0.0 → 6.1.0](#600--610--refused-writes-are-no-longer-successes) | **Audit every `hasError` check on a write result**, and rebuild rather than swapping the jar. Compiles fine either way; misreports refused writes at runtime. |
 | 6.1.0 → 6.1.1 | Nothing — additive. |
 | 6.1.1 → 6.2.0 | Nothing — additive; the new `deleteApiItemFun` parameter is optional and call-site compatible. |
+| 6.2.0 → 6.2.1 | Nothing — internal fix (stale pagination counter after programmatic list refreshes). |
 
 Skipping releases? Apply **every** section between your version and your target — a migration is not
 optional just because you skipped the release that introduced it.

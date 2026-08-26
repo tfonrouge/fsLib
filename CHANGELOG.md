@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [6.2.1] - 2026-08-25
+
+### Fixed
+- The pagination counter under every `fsTabulator` list no longer goes stale after a programmatic
+  refresh. In remote pagination mode the footer counter (`paginationCounter = "rows"`) takes its
+  total from a single Tabulator-internal value that only Tabulator's own remote loader assigns; a
+  refresh through `ViewList.dataUpdate()` — the 5s periodic update, or any explicit call such as the
+  list behind a just-closed create modal — pushes a bare row array through `replaceData`, which
+  bypasses that loader entirely. The rows on screen updated while the footer kept announcing the
+  previous total ("1-5 / 5" after the sixth row appeared). `promise()` now refreshes the estimate
+  from the response's `last_row` (falling back to Tabulator's own formula when the backend skipped
+  the count) before the data is pushed, next to the long-standing `setMaxPage` patch — which
+  covered the page count but never this counter.
+  Pinned by a browser suite that also documents the dead ends: neither `replaceData`, `setData`,
+  nor `setMaxPage` updates the counter, and native page navigation is unaffected by the fix.
+
+### Migration Guide
+- Nothing required. The fix is internal to `TabulatorViewList`; no API changed.
+
 ## [6.2.0] - 2026-08-24
 
 ### Fixed

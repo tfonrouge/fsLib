@@ -262,6 +262,17 @@ class TabulatorViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
                 oldPage = jsTabulator?.getPage() as? Int ?: -1
                 oldMaxPage = jsTabulator?.getPageMax() as? Int ?: -1
                 jsTabulator?.setMaxPage(jsonObj.last_page as? Int ?: -1)
+                // setMaxPage alone never covered the footer's row counter — that reads a separate
+                // internal, updated only by Tabulator's own remote loader, which apiCall's
+                // replaceData path bypasses. See refreshRemoteRowCountEstimate.
+                refreshRemoteRowCountEstimate(
+                    jsTabulator = jsTabulator,
+                    lastPage = jsonObj.last_page as? Int,
+                    lastRow = jsonObj.last_row as? Int,
+                    page = page,
+                    size = size,
+                    dataLength = (jsonObj.data?.length as? Int) ?: 0,
+                )
                 jsonObj
             } catch (e: Exception) {
                 console.error("Server call response error:", e.message)
