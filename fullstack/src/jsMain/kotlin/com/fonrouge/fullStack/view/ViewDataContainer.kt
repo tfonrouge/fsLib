@@ -14,9 +14,6 @@ import io.kvision.i18n.I18n.gettext
 import io.kvision.modal.Confirm
 import io.kvision.modal.ModalSize
 import io.kvision.toast.Toast
-import kotlinx.browser.window
-import kotlin.js.Date
-import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
 /**
@@ -35,20 +32,12 @@ abstract class ViewDataContainer<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>
     configView = configViewContainer,
 ) {
     companion object {
-        var startTime = 0L
-        val dataUpdateFuncs = HashMap<Pair<Int, String>, () -> Unit>()
-        var handleInterval: Int? = null
-            set(value) {
-                field?.let {
-                    window.clearInterval(it)
-                    dataUpdateFuncs.clear()
-                }
-                field = value
-            }
-
-        fun clearStartTime() {
-            startTime = (Date().getTime() / 1000).toLong()
-        }
+        /**
+         * Pospone un intervalo el refresco de **todas** las tablas registradas, tras una interacción
+         * del usuario. Conserva el nombre histórico porque es lo que llaman `TabulatorViewList` y
+         * `fsTabulator`; la mecánica vive ahora en [PeriodicRefreshScheduler.postponeAll].
+         */
+        fun clearStartTime() = PeriodicRefreshScheduler.postponeAll()
     }
 
     /**
@@ -148,45 +137,54 @@ abstract class ViewDataContainer<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>
         }
     }
 
-    fun runPeriodicBlock() {
-        try {
-//            console.warn("dataUpdateFuncs", dataUpdateFuncs.map { it.key }.toObj())
-            dataUpdateFuncs.forEach {
-//                console.warn("callBlock", it.key, it.value.toString().substringBefore("("))
-                it.value.invoke()
-            }
-        } catch (e: Exception) {
-            console.error("Error on runPeriodicBlock(): ", e)
-        }
+    /**
+     * Token de este contenedor en [PeriodicRefreshScheduler]; `null` mientras no está registrado.
+     * Es el único que puede darlo de baja — antes cualquier vista al destruirse borraba el mapa
+     * completo, y con él el refresco de todas las demás.
+     */
+    private var periodicToken: Int? = null
+
+    /**
+     * Da de alta el refresco periódico de este contenedor. **Idempotente**: llamarlo otra vez sobre
+     * la misma instancia —como hacen `fsTabulator` en cada render y `ViewItem` en cada carga—
+     * conserva el registro que ya tiene en lugar de apilar duplicados.
+     *
+     * Un contenedor que se excluye (`periodicUpdateDataView != true`) simplemente no se registra.
+     * Antes se metía al mapa igual y terminaba refrescándose cuando el temporizador de **otra**
+     * vista estaba corriendo: la bandera sólo decidía quién creaba el temporizador, no quién se
+     * refrescaba. Ahora la bandera significa lo que dice su nombre.
+     *
+     * ## Cuándo se lee la bandera
+     *
+     * `periodicUpdateDataView` es un `var` en `ViewList` y `ViewItem`, así que puede cambiar después
+     * del montaje, y el contrato es asimétrico a propósito:
+     *
+     * - **`true` → `false` en caliente**: surte efecto de inmediato. El registro sigue ahí, pero el
+     *   bloque consulta la bandera **en vivo** en cada vuelta y no hace nada.
+     * - **`false` → `true` en caliente**: no surte efecto solo. Un contenedor excluido no ocupa un
+     *   token —si lo ocupara mantendría vivo el temporizador compartido sin refrescar nada—, así
+     *   que empieza a refrescarse en la siguiente llamada a [installUpdate], que es lo que hacen
+     *   `fsTabulator` en cada render y `ViewItem` en cada carga de item.
+     *
+     * En la práctica las vistas la fijan antes de montarse, que es el caso para el que se diseñó.
+     */
+    fun installUpdate() {
+        if (periodicToken != null) return
+        if (periodicUpdateDataView != true) return
+        val block = onPeriodicDataUpdate ?: return
+        periodicToken = PeriodicRefreshScheduler.register(
+            intervalSecs = { periodicUpdateViewInterval },
+            block = { if (periodicUpdate && periodicUpdateDataView == true) block.invoke() },
+        )
     }
 
-    fun installUpdate() {
-//        console.warn("installUpdate", this.hashCode(), this::class.simpleName, periodicUpdateDataView)
-        onPeriodicDataUpdate?.let {
-            dataUpdateFuncs[this.hashCode() to (this::class.simpleName ?: "?")] = it
-        }
-        if (handleInterval == null && periodicUpdateDataView == true) {
-            var lock = false
-            handleInterval = window.setInterval(
-                handler = {
-                    if (periodicUpdate) {
-                        val curTime = (Date().getTime() / 1000).toLong()
-                        val inactivityUiSecs = userSessionParams?.inactivityUiSecsToNoRefresh?.let {
-                            (Clock.System.now() - lastUiActivity).inWholeSeconds
-                        }
-                        if ((curTime - startTime) >= periodicUpdateViewInterval && (inactivityUiSecs == null || inactivityUiSecs < 60L)) {
-                            if (!lock) {
-                                startTime = curTime
-                                lock = true
-                                runPeriodicBlock()
-                                lock = false
-                            }
-                        }
-                    }
-                },
-                timeout = 250,
-            )
-        }
+    /**
+     * Da de baja **sólo** el registro de este contenedor. Seguro de llamar dos veces; lo invocan
+     * [onBeforeDispose] y el hook de dispose del panel que monta la tabla en `fsTabulator`.
+     */
+    fun uninstallUpdate() {
+        PeriodicRefreshScheduler.unregister(periodicToken)
+        periodicToken = null
     }
 
     /**
@@ -198,9 +196,14 @@ abstract class ViewDataContainer<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<*>
         dataUpdate()
     }
 
+    /**
+     * Suelta **únicamente** el registro de este contenedor. Antes hacía `handleInterval = null`,
+     * cuyo `set` mataba el temporizador compartido y vaciaba las funciones de refresco de todas las
+     * demás vistas: ése era el defecto.
+     */
     override fun onBeforeDispose() {
         super.onBeforeDispose()
-        handleInterval = null
+        uninstallUpdate()
     }
 
     /**

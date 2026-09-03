@@ -59,6 +59,19 @@ abstract class View<FILT : IApiFilter<*>>(
         var userSessionParams: UserSessionParams? = null
 
         /**
+         * Instante de la última señal de actividad del usuario (mouse o teclado), usada por
+         * [PeriodicRefreshScheduler] para dejar de jalar datos cuando la sesión declara un umbral de
+         * inactividad.
+         *
+         * Vive en el companion porque la actividad del usuario es **una sola**, no una por vista. Era
+         * un campo de instancia leído desde la clausura del temporizador, o sea que el umbral se
+         * medía contra la actividad de *la instancia que hubiera creado el temporizador*; ahora el
+         * planificador no tiene instancia a la cual preguntarle.
+         */
+        @OptIn(ExperimentalTime::class)
+        internal var lastUiActivity: Instant = Clock.System.now()
+
+        /**
          * A nullable variable that holds a suspending function to update user session parameters.
          * This function, when defined, is expected to return an [ItemState] containing the updated [UserSessionParams].
          * If set to null, no action is performed for updating session parameters.
@@ -200,8 +213,6 @@ abstract class View<FILT : IApiFilter<*>>(
      */
     open val helpModule: IHelpModule? = null
 
-    @OptIn(ExperimentalTime::class)
-    internal var lastUiActivity: Instant = Clock.System.now()
     var mainView: Boolean = false
     var navButtonCancel: Button? = null
     var navButtonAccept: Button? = null

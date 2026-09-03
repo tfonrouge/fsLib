@@ -7,6 +7,7 @@ import com.fonrouge.base.model.BaseDoc
 import com.fonrouge.fullStack.layout.centeredMessage
 import com.fonrouge.fullStack.layout.toolBarList
 import com.fonrouge.fullStack.view.ViewDataContainer
+import com.fonrouge.fullStack.view.ownPeriodicUpdateOf
 import com.fonrouge.fullStack.view.ViewItem
 import com.fonrouge.fullStack.view.ViewList
 import io.kvision.core.*
@@ -70,6 +71,10 @@ fun <T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID : Any> Container.fsT
     }
 
     vPanel {
+        // El token del refresco periódico lo posee el panel realmente montado, no la instancia de
+        // `ViewList`. Ver `ownPeriodicUpdateOf`, que es donde vive el porqué y lo que ejercita
+        // `PeriodicRefreshDisposeTest` contra el ciclo de vida real de KVision.
+        ownPeriodicUpdateOf(viewList)
         bind(viewList.errorStateObs) { errorState ->
             viewList.navbarTabulator = toolBarList(viewList = viewList, minToolbarSize)
             if (!errorState) {
