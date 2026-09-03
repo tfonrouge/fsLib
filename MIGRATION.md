@@ -15,6 +15,7 @@ list and the rationale.
 | 6.1.1 → 6.2.0 | Nothing — additive; the new `deleteApiItemFun` parameter is optional and call-site compatible. |
 | 6.2.0 → 6.2.1 | Nothing — internal fix (stale pagination counter after programmatic list refreshes). |
 | 6.2.1 → 6.2.2 | Nothing — completes the 6.2.1 counter fix (metadata-only changes now repaint). Skip 6.2.1 and go straight here. |
+| [6.2.2 → 6.2.3](#622--623--el-refresco-periódico-se-registra-por-token) | **Removes four public members of `ViewDataContainer`**, changes what `periodicUpdateDataView = false` does, makes `inactivityUiSecsToNoRefresh` actually take effect, y **reemplaza `tabPanel` por `fsTabPanel`**. |
 
 Skipping releases? Apply **every** section between your version and your target — a migration is not
 optional just because you skipped the release that introduced it.
@@ -486,3 +487,99 @@ See `samples/fullstack/showcase/.../ViewHome.kt` for a complete example.
       `registerEntityViews()` DSL
 - [ ] Verify build: `./gradlew build`
 - [ ] Verify runtime: confirm views load and CRUD operations work
+
+---
+
+## 6.2.2 → 6.2.3 — el refresco periódico se registra por token
+
+**Síntoma si no migras.** Si tu código no toca los cuatro miembros removidos y ninguna vista tuya
+declara `periodicUpdateDataView = false`, no hay nada que hacer: recompila y listo. Si los toca, no
+compila —y eso es lo deseable, porque el fallo aparece en el build y no en producción—.
+
+**Qué se removió de `ViewDataContainer`.** Eran el mecanismo interno del planificador viejo, expuesto
+como público sin ser contrato de nadie:
+
+| Removido | Reemplazo |
+|---|---|
+| `startTime` | ninguno — cada registro lleva su propio `lastRun` |
+| `dataUpdateFuncs` | `PeriodicRefreshScheduler.registrationCount` para diagnóstico |
+| `handleInterval` | `PeriodicRefreshScheduler.periodicTimerRunning` (sólo lectura) |
+| `runPeriodicBlock()` | `PeriodicRefreshScheduler.runDueBlocks()` |
+
+Se verificó que ningún consumidor conocido (mppArel, DMOnline3, ticketLib) los referencia. Eso es
+compatibilidad **comprobada para esos tres**, no preservación de la API pública: si tienes otro
+consumidor, revísalo antes de subir.
+
+**El cambio que sí puede morderte en silencio: `periodicUpdateDataView = false`.**
+
+Antes, una vista con la bandera en `false` **igual se refrescaba** siempre que el temporizador de
+*otra* vista estuviera corriendo — la bandera sólo decidía quién creaba el temporizador, no quién se
+refrescaba. Ahora significa lo que dice: esa vista no se registra y no se refresca.
+
+Es una corrección, pero **compila igual y no avisa**. Revisa funcionalmente cada vista con la bandera
+en `false` y decide si querías ese comportamiento o si dependías del refresco accidental:
+
+```kotlin
+// Si dependías del refresco que ocurría por accidente, quita la bandera:
+periodicUpdateDataView = false   // ← antes se refrescaba igual; ahora ya no
+
+// Si de verdad quieres que no se refresque, no hay nada que cambiar.
+```
+
+Cuándo se lee la bandera: `true` → `false` en caliente surte efecto de inmediato (el bloque la
+consulta en vivo); `false` → `true` empieza a aplicar en la siguiente llamada a `installUpdate()`,
+que `fsTabulator` hace en cada render y `ViewItem` en cada carga de item.
+
+**El otro cambio silencioso: `inactivityUiSecsToNoRefresh` ahora se respeta.**
+
+La compuerta de inactividad recibía el umbral configurado y comparaba contra un `60` literal, así
+que el ajuste servía sólo de interruptor y el corte era siempre a los 60 s. No se notó porque el
+valor sembrado por `IUserSessionParamsColl` es justamente 60: con la configuración por omisión los
+dos comportamientos coinciden.
+
+Revisa el valor de `inactivityUiSecsToNoRefresh` en tu colección `__configApp` antes de subir:
+
+```
+db.getCollection("__configApp").find({_id: "UserSessionParams"})
+```
+
+- **Vale 60** (el default sembrado) — no cambia nada.
+- **Vale menos de 60** — las tablas ahora dejan de refrescarse antes de lo que hacían.
+- **Vale más de 60** — ahora siguen refrescándose hasta el número que configuraste, en vez de
+  cortarse a los 60 s.
+- **Vale 0** — ahora significa *desactivado* (mismo criterio que `sessionMaxSecs` en
+  `IUserColl.kt:52`), o sea que no corta nunca. Antes cortaba a los 60 s.
+
+**Cambia `tabPanel` por `fsTabPanel` en todas tus vistas con pestañas.**
+
+`TabPanel` de KVision guarda sus pestañas en una lista propia y sobrescribe `disposeAll()` pero no
+`dispose()`, así que al destruirlo **las pestañas nunca reciben `dispose()`** y ningún
+`addBeforeDisposeHook` registrado dentro de una pestaña llega a dispararse. Una tabla embebida en
+una pestaña seguía pidiendo datos cada 5 s con la ficha ya cerrada, y sumaba un huérfano por cada
+activación de la pestaña.
+
+Antes esto no se veía porque el planificador anterior vaciaba el registro completo al destruirse
+cualquier vista: aniquilaba el huérfano junto con el refresco de todo lo demás. Los dos defectos se
+tapaban mutuamente. Al corregir el planificador, éste queda expuesto — **por eso hay que migrar al
+subir de versión, no después**.
+
+Es reemplazo directo, mismos parámetros:
+
+```kotlin
+// Antes
+import io.kvision.panel.tabPanel
+tabPanel { tab(label = "…") { … } }
+
+// Después
+import com.fonrouge.fullStack.panel.fsTabPanel
+fsTabPanel { tab(label = "…") { … } }
+```
+
+El `tab { }` de KVision se sigue usando igual. Si tu proyecto tiene un test estructural, vale la
+pena prohibir ahí el `tabPanel` crudo: nada en el compilador impide reintroducirlo.
+
+**Lo que no cambia.** `installUpdate()`, `clearStartTime()`, `allowInstallPeriodicUpdate`,
+`suspendPeriodicUpdate()` y `resumePeriodicUpdate()` conservan nombre y comportamiento. El
+aplazamiento por interacción (`clearStartTime`) sigue siendo **global**: tocar una tabla pospone a
+todas. Las cadencias sí son independientes por registro.
+

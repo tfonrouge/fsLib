@@ -4,6 +4,87 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [6.2.3] - 2026-09-03
+
+### Changed (BREAKING — removes public API)
+- The periodic-refresh scheduler is now owned **per registration**, not globally. Registration,
+  scheduling and lifetime used to be braided together in `ViewDataContainer`: a companion map keyed
+  by instance identity, one `setInterval` created by *whichever container happened to mount first*
+  (its closure capturing that instance's `periodicUpdate`, `periodicUpdateViewInterval` and
+  `lastUiActivity`), and a `handleInterval` setter that on `null` did `clearInterval` **and
+  `dataUpdateFuncs.clear()`**. `onBeforeDispose()` did exactly that, so **closing any one view
+  stopped the periodic refresh of every other live view** — silently: no error, the table just stops
+  updating. A single global `startTime` also meant the table that ran postponed all the others.
+
+  The new `PeriodicRefreshScheduler` hands out a token per registration; `unregister(token)` removes
+  that entry and nothing else; the shared timer belongs to the scheduler (its handler captures no
+  instance), starts with the first registration and stops only when the last one leaves; each entry
+  carries its own interval and `lastRun`.
+
+  **Four public members were removed from `ViewDataContainer`**: `startTime`, `dataUpdateFuncs`,
+  `handleInterval` and `runPeriodicBlock()`. `installUpdate()`, `clearStartTime()`,
+  `allowInstallPeriodicUpdate`, `suspendPeriodicUpdate()` and `resumePeriodicUpdate()` keep their
+  names and behaviour; `uninstallUpdate()` is new.
+
+- `periodicUpdateDataView = false` now means what its name says. A container that opted out was
+  still added to the map and got refreshed whenever *another* view's timer was running — the flag
+  only decided who created the timer. It is read at registration and again, live, on every sweep:
+  turning it off in flight takes effect at once; turning it on requires the next `installUpdate()`
+  (which `fsTabulator` issues on each render and `ViewItem` on each item load).
+
+- `View.lastUiActivity` moved from instance scope to `View`'s companion. It was an instance field
+  read from the timer closure, so the inactivity threshold was measured against the activity of
+  whichever instance had created the timer. User activity is one value, not one per view.
+
+### Added
+- **`FsTabPanel` / `fsTabPanel`** (`com.fonrouge.fullStack.panel`), a drop-in replacement for
+  KVision's `TabPanel` that **disposes its tabs**. `TabPanel` keeps its tabs in its own `tabs` list
+  — `addTab` sets `tab.parent = nav` and never adds them to `children`/`privateChildren` — and
+  overrides `disposeAll()` but **not `dispose()`**. Since `SimplePanel.dispose()` only walks
+  `children` and `privateChildren`, disposing a `TabPanel` never reaches its tabs, so **no
+  `addBeforeDisposeHook` registered inside a tab ever fires** — periodic refreshes, subscriptions,
+  timers, any cleanup. It is a general KVision lifecycle defect, not specific to fsLib; verified
+  against KVision 9.5.0 and 9.6.0.
+
+  The wrapper removes each tab through the protected `removeTab` (over a copy of the list, which
+  `removeTab` mutates) before disposing it, so no graph of disposed components is retained.
+  `disposeAll()` is deliberately not reused: it ends in `removeAll()`, which iterates `tabs` while
+  `removeTab` removes from it.
+
+  `FsTabPanelDisposeTest.tabPanelCrudoNoDestruyeSusPestanas` pins the upstream behaviour: when
+  KVision overrides `dispose()`, that test fails — the signal to retire this class.
+
+### Fixed
+- **A periodic refresh registered inside a tab no longer outlives its view.** Measured in the
+  consumer app: with an item open in a modal, four refreshes ran on an exact 5 s grid; on closing,
+  the item's own refresh and the route graph unregistered, but a list embedded in a tab kept
+  fetching — 40 s later it still was — and every re-activation of that tab added another call per
+  cycle. A latent KVision lifecycle defect, previously masked by this library's own global
+  destruction of every registration on any view's disposal: the two bugs concealed each other.
+- An embedded list rebuilt inside a `bind { … }` no longer leaks its previous registration. A list
+  used through `fsTabulator` never goes through `View.startDisplayPage`, so it never receives
+  `onBeforeDispose()`; the mounted panel now owns the token via `ownPeriodicUpdateOf`.
+- **`inactivityUiSecsToNoRefresh` is now honoured.** The gate's `let` received the configured
+  threshold and then compared against a literal `60`, so the setting worked only as an on/off switch
+  and the real cut-off was always 60 s. It went unnoticed because `IUserSessionParamsColl` seeds
+  exactly `60`: for the default configuration both behaviours coincide, and only an installation
+  that changed the number could see that its number did nothing. Following the `sessionMaxSecs`
+  idiom (`IUserColl.kt:52`), `0` now means *disabled*.
+
+### Added (tests)
+- 25 browser tests over the scheduler's contract, plus 9 over tab lifecycle: ownership isolation, timer lifetime, per-entry
+  cadence, sweep robustness, install/uninstall idempotency, and — against KVision's real lifecycle —
+  panel destruction and `bind` rebuild (`ownPeriodicUpdateOf`). The clock and the timer are injected
+  so "exactly one timer", the inactivity pause and sweep re-entrancy are exercised without waiting.
+  The inactivity threshold is covered in both directions (a short threshold cuts before 60 s, a
+  long one is not truncated at 60 s) plus the `0` = disabled case. All guards are mutation-tested.
+
+### Migration Guide
+- See [MIGRATION.md](MIGRATION.md#622--623--el-refresco-periódico-se-registra-por-token).
+  Nothing to change unless you reference the four removed members or set
+  `periodicUpdateDataView = false` on a view that you still expect to refresh.
+
+
 ## [6.2.2] - 2026-08-25
 
 ### Fixed
