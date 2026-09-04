@@ -16,6 +16,18 @@ plugins {
 //   2. ./gradlew publishToCentralPortal
 // ---------------------------------------------------------------------------
 
+// Staging accumulates across releases (module publications APPEND into staging-deploy), and the
+// portal upload zips the WHOLE directory — so a leftover prior release gets re-submitted and every
+// one of its components is rejected by Central as already existing, failing the entire deployment
+// (including the genuinely new version riding in the same bundle). This bit twice as a forgotten
+// manual step (6.2.2 → 6.2.3 residue, then 6.2.3 → 6.2.4); these two guards retire it:
+// `cleanStagingDeploy` runs before any staging publication, and the upload refuses a mixed bundle.
+val cleanStagingDeploy = tasks.register("cleanStagingDeploy", Delete::class) {
+    description = "Empties staging-deploy so a release bundle can only contain the version being staged"
+    group = "publishing"
+    delete(layout.buildDirectory.dir("staging-deploy"), layout.buildDirectory.file("central-bundle.zip"))
+}
+
 tasks.register("publishToCentralPortal", Exec::class) {
     description = "Uploads the staging-deploy bundle to Maven Central Portal"
     group = "publishing"
@@ -32,6 +44,20 @@ tasks.register("publishToCentralPortal", Exec::class) {
         val staging = stagingDir.get().asFile
         if (!staging.exists() || staging.listFiles()?.isEmpty() != false) {
             error("No staged artifacts found. Run publishAllPublicationsToStagingRepository first.")
+        }
+
+        // Refuse a mixed bundle: Central rejects any component whose version already exists, and
+        // one rejected component fails the whole deployment — taking the new release down with it.
+        val stagedVersions = staging.walkTopDown()
+            .filter { it.isFile && it.extension == "pom" }
+            .mapNotNull { it.parentFile?.name }
+            .toSortedSet()
+        if (stagedVersions.size != 1) {
+            error(
+                "staging-deploy contains ${stagedVersions.size} versions: $stagedVersions. " +
+                    "A bundle must carry exactly one. Run ./gradlew cleanStagingDeploy " +
+                    "publishAllPublicationsToStagingRepository and retry."
+            )
         }
 
         // Create ZIP bundle from staging directory

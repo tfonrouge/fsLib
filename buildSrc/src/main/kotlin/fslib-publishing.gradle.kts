@@ -121,6 +121,15 @@ publishing {
         }
     }
 
+    // Every publication into Staging first empties it (root `cleanStagingDeploy`, executed at most
+    // once per build), so a release bundle can never accumulate a previous release. See the root
+    // build script for the incident history this encodes.
+    tasks.withType<PublishToMavenRepository>().configureEach {
+        if (name.contains("ToStagingRepository")) {
+            dependsOn(":cleanStagingDeploy")
+        }
+    }
+
     repositories {
         maven {
             name = "Staging"

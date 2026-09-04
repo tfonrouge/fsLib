@@ -70,9 +70,12 @@ part of the published artifacts. Once a version is out, its documentation can on
    its provider automatically" reads as current forever. Any doc that *teaches* a changed API — not just
    the ones that cite its version — is in scope, `*.kt` KDoc included.
 3. **Full green build on JDK 25** (compile + tests).
-4. **Clean the staging directory first:** `rm -rf build/staging-deploy build/central-bundle.zip`.
-   Staging *appends*, and the upload zips the whole directory — a leftover artifact from an earlier
-   release will be re-submitted and rejected.
+4. **Staging hygiene is automatic** (since 2026-09-04, after the mixed-bundle failure bit twice):
+   every publication into the Staging repository first runs `cleanStagingDeploy`, so
+   `build/staging-deploy` can only ever contain the version being staged — and
+   `publishToCentralPortal` refuses to zip or upload a bundle carrying more than one version, with
+   the remedy in the error message. No manual `rm -rf` step remains; if the guard ever fires, run
+   `./gradlew cleanStagingDeploy publishAllPublicationsToStagingRepository` and retry.
 5. `./gradlew -Dorg.gradle.java.home=<jdk25> publishAllPublicationsToStagingRepository`, then confirm
    only the new version is staged.
 6. `./gradlew -Dorg.gradle.java.home=<jdk25> publishToCentralPortal` — `publishingType=AUTOMATIC`
