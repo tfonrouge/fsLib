@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- `FsTabPanel.dispose()` no longer triggers a cascade of full-root re-renders. It used to call
+  `removeTab(tab)` in the loop — which also cleans `activeIndex`, and is what one writes first — but
+  `removeTab` assigns `activeIndex` in all three of its branches (including the self-assignment,
+  which is not a no-op because the setter has side effects), and that setter does
+  `tabs.forEach { it.link.removeCssClass("active") }`. `Widget.removeCssClass` (`Widget.kt:570`)
+  ends in `refresh()`, which reaches `Root.reRender()` (`Root.kt:223`) — a synchronous patch of the
+  entire root tree. With the loop running before `super.dispose()` (the required order, see below)
+  the panel is still attached, so every one of those patches actually happens: on the order of N²
+  full-tree re-renders per close, plus N `changeTab` events ending at `-1` that any listener
+  persisting the active tab would record as garbage. With the consumer's largest panel (6 tabs) that
+  was ~36 root patches every time a record was closed.
+
+  Now it disposes each tab, calls `clearParent()`, empties `tabs` and only then delegates — the same
+  idiom KVision itself already uses for its own component collections (`MdWidget.dispose()`,
+  `MdWidget.kt:64`). The loop stays **before** `super.dispose()` on purpose: reversing it would be
+  cheaper still, but the day KVision fixes `TabPanel` its `dispose()` would destroy the tabs and this
+  loop would destroy them again — and `Widget.dispose()` (`Widget.kt:795-803`) clears
+  `afterDestroyHooks` after running them but not `beforeDisposeHooks`, so the hooks would fire twice.
+  Emptying `tabs` first keeps both directions safe.
+
+  Behaviour is unchanged; this is teardown cost only. Found by the session that opened
+  [rjaros/kvision#584](https://github.com/rjaros/kvision/pull/584) while reviewing this workaround,
+  and this shape converges with the fix proposed there, so retiring `FsTabPanel` when that lands is a
+  deletion rather than a rewrite.
+
+### Added (tests)
+- `destruirNoEmiteEventosDeCambioDePestana` mounts the panel in a real `Root` — `dispatchEvent`
+  dispatches on `getElement()`, so without rendering there would be no element, no event, and the
+  assertion would pass vacuously — and asserts the listener catches two real tab changes before
+  requiring zero during disposal. `destruirNoToquetealaPestanaActiva` pins the same property from the
+  other side: `activeIndex` untouched means the setter never ran. Both fail against the previous
+  `removeTab` shape.
+
+
 ## [6.2.3] - 2026-09-03
 
 ### Changed (BREAKING — removes public API)

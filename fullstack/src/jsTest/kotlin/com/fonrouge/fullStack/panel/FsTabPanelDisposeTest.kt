@@ -3,6 +3,8 @@ package com.fonrouge.fullStack.panel
 import com.fonrouge.fullStack.view.ContenedorSintetico
 import com.fonrouge.fullStack.view.PeriodicRefreshScheduler
 import com.fonrouge.fullStack.view.ownPeriodicUpdateOf
+import io.kvision.panel.ContainerType
+import io.kvision.panel.Root
 import io.kvision.panel.SimplePanel
 import io.kvision.panel.TabPanel
 import io.kvision.panel.tab
@@ -127,6 +129,60 @@ class FsTabPanelDisposeTest {
 
         assertEquals(1, hooksDisparados)
         assertEquals(0, PeriodicRefreshScheduler.registrationCount)
+    }
+
+    /**
+     * **Destruir NO debe emitir eventos `changeTab`.** Es el oráculo que fija la forma de [dispose]:
+     * sólo hay eventos si se pasa por el setter de `activeIndex`, y pasar por él es exactamente lo
+     * que dispara la cascada de `removeCssClass` → `refresh()` → `Root.reRender()` (un patch del
+     * árbol completo por pestaña restante, del orden de N² por cierre).
+     *
+     * La prueba monta el panel en un `Root` **de verdad**: `Widget.dispatchEvent` despacha sobre
+     * `getElement()`, así que sin render no habría elemento, no habría evento, y la prueba pasaría
+     * por vacío diga lo que diga el código. El `assertEquals(2, …)` previo a destruir es parte del
+     * oráculo — comprueba que el listener SÍ capta eventos reales de este panel antes de exigir que
+     * durante la destrucción no llegue ninguno.
+     *
+     * Equivale a `disposeWithoutChangeTabEvents` del PR que fsLib abrió contra KVision; tenerla de
+     * este lado hace que el workaround converja con lo que aterrice upstream en vez de divergir.
+     */
+    @Test
+    fun destruirNoEmiteEventosDeCambioDePestana() {
+        val id = "fs-tab-panel-test-root"
+        val div = kotlinx.browser.document.createElement("div")
+        div.setAttribute("id", id)
+        kotlinx.browser.document.body?.appendChild(div)
+        try {
+            val raiz = Root(id, containerType = ContainerType.NONE)
+            val (panel, _) = panelConTabla(raiz, activarSegunda = false)
+
+            var eventos = 0
+            panel.getElement()?.addEventListener("changeTab", { eventos++ })
+
+            // Control positivo: el listener capta eventos reales de ESTE panel. Sin esto, un
+            // `assertEquals(0, …)` no distingue "no hubo eventos" de "el listener no estaba puesto".
+            panel.activeIndex = 1
+            panel.activeIndex = 0
+            assertEquals(2, eventos, "el listener debe captar los cambios de pestaña reales")
+
+            eventos = 0
+            panel.dispose()
+            assertEquals(0, eventos, "destruir no puede emitir cambios de pestaña")
+        } finally {
+            kotlinx.browser.document.getElementById(id)?.remove()
+        }
+    }
+
+    /** Destruir no toca `activeIndex`: es la señal de que no se pasó por su setter. */
+    @Test
+    fun destruirNoToquetealaPestanaActiva() {
+        val raiz = SimplePanel()
+        val (panel, _) = panelConTabla(raiz, activarSegunda = true)
+        assertEquals(1, panel.activeIndex)
+
+        panel.dispose()
+
+        assertEquals(1, panel.activeIndex, "el setter de activeIndex no debe correr al destruir")
     }
 
     // endregion
