@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [6.2.4] - 2026-09-04
+
 ### Fixed
 - `FsTabPanel.dispose()` no longer triggers a cascade of full-root re-renders. It used to call
   `removeTab(tab)` in the loop — which also cleans `activeIndex`, and is what one writes first — but

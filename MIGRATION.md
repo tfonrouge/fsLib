@@ -16,6 +16,7 @@ list and the rationale.
 | 6.2.0 → 6.2.1 | Nothing — internal fix (stale pagination counter after programmatic list refreshes). |
 | 6.2.1 → 6.2.2 | Nothing — completes the 6.2.1 counter fix (metadata-only changes now repaint). Skip 6.2.1 and go straight here. |
 | [6.2.2 → 6.2.3](#622--623--el-refresco-periódico-se-registra-por-token) | **Removes four public members of `ViewDataContainer`**, changes what `periodicUpdateDataView = false` does, makes `inactivityUiSecsToNoRefresh` actually take effect, y **reemplaza `tabPanel` por `fsTabPanel`**. |
+| 6.2.3 → 6.2.4 | Nothing — internal fix: `FsTabPanel.dispose()` no longer cascades full-root re-renders. Behaviour unchanged, teardown cost only. |
 
 Skipping releases? Apply **every** section between your version and your target — a migration is not
 optional just because you skipped the release that introduced it.
