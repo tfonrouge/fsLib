@@ -18,9 +18,90 @@ list and the rationale.
 | [6.2.2 → 6.2.3](#622--623--el-refresco-periódico-se-registra-por-token) | **Removes four public members of `ViewDataContainer`**, changes what `periodicUpdateDataView = false` does, makes `inactivityUiSecsToNoRefresh` actually take effect, y **reemplaza `tabPanel` por `fsTabPanel`**. |
 | 6.2.3 → 6.2.4 | Nothing — internal fix: `FsTabPanel.dispose()` no longer cascades full-root re-renders. Behaviour unchanged, teardown cost only. |
 | [6.2.4 → 6.3.0](#624--630--help-ui-strings-become-i18n-keys) | **Add 15 keys to your i18n catalog** or the help UI and the cancel dialog show English at runtime (compiles fine either way). Recommended: swap `tomSelectRemote` → `fsTomSelectRemote` to stop the 7–9× RPC storm per form open. |
+| [6.3.0 → 6.4.0](#630--640--kvision-970-kotlin-2420) | **Build with Kotlin 2.4.20.** Keep deploying on Java 25. Column titles now always come from code (stored layouts stay valid; a context-dependent list wants a `persistenceVariant`). `fsTabPanel` is deprecated (warning only) — swap back to KVision's `tabPanel` when convenient. |
 
 Skipping releases? Apply **every** section between your version and your target — a migration is not
 optional just because you skipped the release that introduced it.
+
+---
+
+## 6.3.0 → 6.4.0 — KVision 9.7.0, Kotlin 2.4.20
+
+**What to change.**
+
+1. **Build with Kotlin 2.4.20** (was 2.4.0) — KVision 9.7.0 and Kilua RPC 0.0.46 are built with it. If you
+   apply the Kilua RPC Gradle plugin, align it to **0.0.46** and KSP to **2.3.12**. Your dependency tree will
+   also resolve Ktor **3.5.2** and kotlinx-serialization **1.12.0-RC** (a release candidate, pulled in by
+   KVision 9.7.0 itself).
+2. **Keep deploying on Java 25.** KVision 9.7.0's "Java 21" change is plugin-only; its runtime jars are
+   still Java 25 bytecode. What you do gain: your Gradle daemon may now run on JDK 21 or newer.
+
+**Optional — `fsTabPanel` is deprecated.** KVision 9.7.0's own `TabPanel` now disposes its tabs, so
+`fsTabPanel` behaves exactly like `tabPanel` and only produces a deprecation warning. Swap it back when
+convenient:
+
+```kotlin
+// Before
+import com.fonrouge.fullStack.panel.fsTabPanel
+fsTabPanel { tab(label = "…") { … } }
+
+// After
+import io.kvision.panel.tabPanel
+tabPanel { tab(label = "…") { … } }
+```
+
+A variable explicitly typed `FsTabPanel` becomes `TabPanel`. Upgrading from **6.2.2 or earlier**? Skip
+the `tabPanel` → `fsTabPanel` step of the 6.2.2 → 6.2.3 section: on 6.4.0 `tabPanel` already disposes its
+tabs.
+
+**Column titles now always come from code.** Until 6.3.0, Tabulator stored each column's `title`
+alongside its width, and applied the stored one on load — so renaming a column in code never reached
+anyone who had already opened that list until they pressed *Reset*, and a list whose titles depend on
+context showed whichever variant was opened last. fsLib's default now persists `width` and `visible`
+only; sorting, filters, header filters, grouping, pagination and column order are unaffected.
+
+- **Nothing to change.** Layouts your users already stored stay valid; their stale title is ignored
+  and disappears the next time the layout is saved.
+- **Optional, for an immediate clean slate:** clear the stored layout of the affected lists once, per
+  user, with `localStorage.removeItem("tabulator-<ViewClassName>-columns")` — this is what the
+  toolbar's *Reset* already does for one list.
+- **A list whose column schema depends on context must give each context its own stored layout** —
+  this is the one mandatory step, and excluding the title does not cover it: the contexts still build
+  different *sets* of columns under one key, so their widths, visibility and order keep contaminating
+  each other. Build the identity from **every dimension that changes the schema**, using stable,
+  untranslated tokens (a display label would re-key every layout when the UI language changes):
+
+  ```kotlin
+  class ViewListStep : ViewList<…>(…) {
+      // Every dimension that changes the column set, composed into one stable token, and read when
+      // the table is built — so derive it from state the view already has at that point.
+      override val persistenceVariant: String
+          get() = listOf(
+              if (isManufacturing) "FAB" else "NONFAB",   // adds the quantity columns
+              if (isOperable) "OPERABLE" else "READONLY", // adds the actions column
+          ).joinToString("-")
+  }
+  ```
+
+  **Adding or changing this suffix opens a new namespace for the whole view**: `columns`, `sort`,
+  `filter`, `headerFilter`, `group` and `page` are all stored under the same id, so each context starts
+  without any of the preferences held under the old base key. That initial reset is deliberate — it is the price of
+  separating the contexts, not a cosmetic detail.
+
+  Tabulator fixes a table's storage id when the table is built, so a variant discovered *later*
+  needs the table rebuilt; fsLib does not re-key a live table.
+- **To retire a stored layout on purpose** — a corrected width, a reordered set that must reach
+  users who never press *Reset* — append a revision marker to the same property, **composed with the
+  context**: `"FAB-OPERABLE-v2"`. Never replace the context with a bare `"v2"`: that merges the
+  contexts back into one key and reintroduces the contamination. The view moves to a fresh key and the old layout is left behind.
+  fsLib ships no automatic invalidation: the trigger that matters differs per view, and an automatic
+  rule either misses it or throws away hand-set widths on every column edit. Use this property when a
+  contextual suffix is enough — it keeps the key in one place instead of rebuilding the table options
+  at each call site. Passing `persistenceID` to `defaultTabulatorOptions` is equally supported and is
+  the right tool when the identity must be derived from the view's own columns or other state only the
+  consumer has.
+
+**Unchanged:** keep `fsTomSelectRemote` — KVision 9.7.0 did not fix the duplicate remote-selector loads.
 
 ---
 

@@ -11,8 +11,9 @@ Thank you for your interest in contributing to FSLib!
 
 ## Development Setup
 
-- **JDK 25** — required since 6.0.0. KVision 9.6.0's Gradle plugin fails at configuration on an older
-  JDK, and its runtime artifacts are Java 25 bytecode.
+- **JDK 25** — installed, required since 6.0.0: every module compiles with `jvmToolchain(25)`, and
+  KVision's runtime artifacts are Java 25 bytecode. Since 6.4.0 the Gradle daemon may run on JDK 21 or
+  newer (KVision 9.7.0's plugin targets 21; 9.6.0's plugin failed at configuration on anything below 25).
 - **MongoDB** (if working on the `:mongodb` module)
 - **Docker** (optional — the Mongo conformance tests use Testcontainers; without it they skip locally
   and run in CI)
@@ -23,8 +24,8 @@ Thank you for your interest in contributing to FSLib!
 ./gradlew :ssr:test      # Run SSR tests
 ```
 
-The Gradle **daemon** itself must run on JDK 25. If that isn't your default, pass it per invocation
-rather than committing a machine-specific path:
+The Gradle **daemon** needs JDK 21 or newer (since 6.4.0; it needed 25 on 6.0.0–6.3.0). To pin it, pass
+it per invocation rather than committing a machine-specific path:
 
 ```bash
 ./gradlew -Dorg.gradle.java.home=/path/to/jdk-25 build
@@ -69,7 +70,9 @@ part of the published artifacts. Once a version is out, its documentation can on
    Behavior claims are the dangerous half: a stale version number is obvious, while "the module registers
    its provider automatically" reads as current forever. Any doc that *teaches* a changed API — not just
    the ones that cite its version — is in scope, `*.kt` KDoc included.
-3. **Full green build on JDK 25** (compile + tests).
+3. **Full green build** (compile + tests), then `:fullstack:jsBrowserTest` as its **own** invocation —
+   `build -x jsBrowserTest :fullstack:jsBrowserTest` silently skips the JS tests, because `-x` also
+   excludes the explicitly named task.
 4. **Staging hygiene is automatic** (since 2026-09-04, after the mixed-bundle failure bit twice):
    every publication into the Staging repository first runs `cleanStagingDeploy`, so
    `build/staging-deploy` can only ever contain the version being staged — and

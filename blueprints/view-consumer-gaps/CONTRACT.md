@@ -30,6 +30,16 @@ API_SURFACE duty per LEDGER L-002). KDoc on the symbols references this contract
   **fsLib's own caller (`View.startDisplayPage`) passes a live provider** so standard views get
   the fix without any consumer change (L-008/ACS-04).
 
+- **I-6 (the code owns column titles).** A stored Tabulator layout may restore a column's `width`,
+  `visible` and position, and the table's sort, filters, header filters, grouping and pagination —
+  but never its `title`. The title is authored in code and changes with the code, for every browser,
+  without a *Reset*. Layouts stored by earlier versions keep working and shed their stale title on
+  the next save. Views whose columns depend on context key their storage per
+  `persistenceVariant` (read when the table is built — a live table is never re-keyed; L-012), which
+  is also the knob that retires a stored layout on purpose, **composed with the context rather than
+  replacing it** (L-013/L-014). Changing that suffix re-keys the view's whole persistence namespace —
+  `columns`, `sort`, `filter`, `headerFilter`, `group`, `page` — not only its columns.
+
 ## New public API (additive — SemVer minor)
 
 | Symbol | Kind | Module / package | Notes |
@@ -39,6 +49,16 @@ API_SURFACE duty per LEDGER L-002). KDoc on the symbols references this contract
 | `Container.fsTomSelectRemote(...)` | DSL builder | same | drop-in for `tomSelectRemote(...)` |
 | `Container.fsTomSelectRemoteInput(...)` | DSL builder | same | drop-in for `tomSelectRemoteInput(...)` |
 | `Container.helpButtons(viewClassName, viewLabelProvider: () -> String, moduleSlug, showTutorial)` | overload | `fullstack` jsMain · `com.fonrouge.fullStack.layout` | carries the implementation; `String` overload delegates |
+
+| `ViewList.persistenceVariant` | `protected open val` (default `null`) | `fullstack` jsMain · `com.fonrouge.fullStack.view` | subclass surface: a view suffixes its own stored-layout key; read when the table is built |
+| `ViewList.tabulatorInfoPersistenceConfig` | companion `var` — **default value changed** | same | now an explicit object equal to `persistence = true` minus the column title |
+
+`persistenceId()` is **private** and `persistenceIdOf` **internal** — the key composition and its
+testable join are fsLib's, not surface a consumer calls; `persistenceID` on `defaultTabulatorOptions`
+remains the supported way to supply a key fsLib would not build.
+fsLib ships **no automatic layout invalidation**: bumping [ViewList.persistenceVariant] is the explicit
+mechanism (L-013), and a consumer that wants it derived from its own columns can compute the suffix
+itself, as ErsaPack's `persistenciaPorFirma` already does.
 
 `InFlightValueGuard` is **internal** — an implementation detail of `FsTomSelectRemoteInput`
 (unit-tested in-module), deliberately not part of the public surface (L-008/ACS-06).

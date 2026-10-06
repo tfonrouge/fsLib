@@ -52,17 +52,18 @@ your-app  ──>  fullstack  ──>  core
 | Component | Technology | Version |
 |-----------|-----------|---------|
 | Language | [Kotlin](https://kotlinlang.org/) (Multiplatform) | 2.4.x |
-| Backend | [Ktor](https://ktor.io/) (Netty) | 3.4.x |
+| Backend | [Ktor](https://ktor.io/) (Netty) | 3.5.x |
 | MongoDB | [KMongo](https://litote.org/kmongo/) (coroutine) | 5.6.x |
 | SQL | [Exposed](https://github.com/JetBrains/Exposed) | 0.61.x |
-| Frontend | [KVision](https://kvision.io/) | 9.6.x |
-| RPC | [Kilua RPC](https://github.com/rjaros/kilua-rpc) | 0.0.45 |
-| Serialization | [kotlinx-serialization](https://github.com/Kotlin/kotlinx.serialization) | 1.11.x |
+| Frontend | [KVision](https://kvision.io/) | 9.7.x |
+| RPC | [Kilua RPC](https://github.com/rjaros/kilua-rpc) | 0.0.46 |
+| Serialization | [kotlinx-serialization](https://github.com/Kotlin/kotlinx.serialization) | 1.12.x (RC, via KVision 9.7.0) |
 | JVM | Toolchain 25 | |
 
-> **Java 25 is required since 6.0.0** — build *and* runtime. KVision 9.6.0's runtime artifacts are
-> Java 25 bytecode, so an earlier JRE fails at class-load. Need Java 21? Use `5.0.0`, which carries the
-> same library behavior on KVision 9.5.0 / Kotlin 2.3.20.
+> **Java 25 is required at runtime since 6.0.0.** KVision's runtime artifacts are Java 25 bytecode
+> (9.6.0 and 9.7.0 alike), so an earlier JRE fails at class-load. Building needs a JDK 25 installation;
+> since 6.4.0 the Gradle daemon itself may run on JDK 21+. Need Java 21 at runtime? Use `5.0.0`, which
+> carries the same library behavior on KVision 9.5.0 / Kotlin 2.3.20.
 
 ---
 
@@ -77,7 +78,7 @@ Add the dependency to your module's `build.gradle.kts`:
 ```kotlin
 // Version catalog (gradle/libs.versions.toml)
 [versions]
-fslib = "6.3.0"
+fslib = "6.4.0"
 
 [libraries]
 fslib-core = { module = "com.fonrouge.fslib:core", version.ref = "fslib" }
@@ -95,12 +96,12 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.3.0")
+                api("com.fonrouge.fslib:fullstack:6.4.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:memorydb:6.3.0")
+                implementation("com.fonrouge.fslib:memorydb:6.4.0")
             }
         }
     }
@@ -113,12 +114,12 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.3.0")
+                api("com.fonrouge.fslib:fullstack:6.4.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:mongodb:6.3.0")
+                implementation("com.fonrouge.fslib:mongodb:6.4.0")
             }
         }
     }
@@ -131,12 +132,12 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.3.0")
+                api("com.fonrouge.fslib:fullstack:6.4.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:sql:6.3.0")
+                implementation("com.fonrouge.fslib:sql:6.4.0")
             }
         }
     }
@@ -149,13 +150,13 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.3.0")
+                api("com.fonrouge.fslib:fullstack:6.4.0")
             }
         }
         jvmMain {
             dependencies {
-                implementation("com.fonrouge.fslib:mongodb:6.3.0")
-                implementation("com.fonrouge.fslib:sql:6.3.0")
+                implementation("com.fonrouge.fslib:mongodb:6.4.0")
+                implementation("com.fonrouge.fslib:sql:6.4.0")
             }
         }
     }
@@ -168,7 +169,7 @@ kotlin {
 ./gradlew publishToMavenLocal -PSNAPSHOT
 ```
 
-This publishes `:core`, `:fullstack`, `:mongodb`, `:sql`, `:memorydb`, `:media`, and `:ssr` to your local Maven repository (`~/.m2/repository`) as `6.3.0-SNAPSHOT`.
+This publishes `:core`, `:fullstack`, `:mongodb`, `:sql`, `:memorydb`, `:media`, and `:ssr` to your local Maven repository (`~/.m2/repository`) as `6.4.0-SNAPSHOT`.
 
 The `-PSNAPSHOT` flag is **required**: publishing a release version to `~/.m2/` would silently shadow the official Maven Central artifact for every project on the machine, so a bare `publishToMavenLocal` is blocked and fails at configuration time. Use `-PFORCE_LOCAL` only if you genuinely need to override that. See [Local Development with SNAPSHOT](#local-development-with-snapshot).
 
@@ -593,9 +594,10 @@ A standalone Android client that consumes the showcase API contract is available
 
 ## Build Commands
 
-> **Requires the Gradle daemon on JDK 25** (since 6.0.0 — KVision 9.6.0's plugin needs it). If your
-> default JDK is older, pass it per invocation:
-> `./gradlew -Dorg.gradle.java.home=<jdk25-home> <task>`
+> **Requires a JDK 25 installation** (all modules compile with `jvmToolchain(25)`). Since 6.4.0 the
+> Gradle daemon may run on JDK 21 or newer (KVision 9.7.0's plugin targets 21; 9.6.0's needed 25). To pin
+> the daemon JDK, pass it per invocation:
+> `./gradlew -Dorg.gradle.java.home=<jdk-home> <task>`
 
 ```bash
 ./gradlew build                    # Build all modules
@@ -613,7 +615,7 @@ A standalone Android client that consumes the showcase API contract is available
 To publish a SNAPSHOT version to your local Maven repository for development and testing:
 
 ```bash
-./gradlew publishToMavenLocal -PSNAPSHOT   # Publishes as 6.3.0-SNAPSHOT to ~/.m2/
+./gradlew publishToMavenLocal -PSNAPSHOT   # Publishes as 6.4.0-SNAPSHOT to ~/.m2/
 ./gradlew :core:publishToMavenLocal -PSNAPSHOT  # Single module only
 ```
 
@@ -625,7 +627,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.fonrouge.fslib:fullstack:6.3.0-SNAPSHOT")
+    implementation("com.fonrouge.fslib:fullstack:6.4.0-SNAPSHOT")
 }
 ```
 
@@ -707,9 +709,10 @@ FSLib/
 
 ## Requirements
 
-- **JDK 25** — required for both building and running since 6.0.0 (KVision 9.6.0 ships Java 25
-  bytecode). On 5.0.0 and earlier, JDK 21 or higher.
-- **Kotlin 2.4** in the consuming project (since 6.0.0)
+- **JDK 25** — required for running since 6.0.0 (KVision ships Java 25 bytecode, 9.6.0 and 9.7.0 alike)
+  and installed for building; since 6.4.0 the Gradle daemon may run on JDK 21+. On 5.0.0 and earlier,
+  JDK 21 or higher.
+- **Kotlin 2.4.20** in the consuming project (since 6.4.0; Kotlin 2.4 since 6.0.0)
 - **MongoDB** (if using the `:mongodb` module)
 - **SQL Server** (if using the `:sql` module — MSSQL via jTDS or JDBC driver)
 - **Chrome** (for JS tests via Karma)

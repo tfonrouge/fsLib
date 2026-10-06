@@ -4,6 +4,90 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [6.4.0] - 2026-10-06
+
+Moves fsLib onto **KVision 9.7.0**, which ships the `TabPanel` disposal fix fsLib contributed upstream
+(rjaros/kvision#584).
+
+### Changed
+- **KVision 9.6.0 → 9.7.0**, with the toolchain aligned to what 9.7.0 and Kilua RPC 0.0.46 are built
+  with: Kotlin 2.4.0 → **2.4.20**, Kilua RPC 0.0.45 → **0.0.46**, KSP 2.3.9 → **2.3.12** (required by the
+  Kilua RPC 0.0.46 plugin), Ktor 3.4.0 → **3.5.2** and kotlinx-serialization 1.11.0 → **1.12.0-RC**. The
+  last two are what Kilua RPC 0.0.46 resolves transitively; the catalog now declares them instead of pins
+  that conflict resolution was silently overriding. Serialization is a **release candidate** because
+  KVision 9.7.0 itself depends on it.
+- **Building fsLib no longer requires the Gradle daemon on JDK 25.** KVision 9.7.0's Gradle plugin targets
+  Java 21 (9.6.0's required 25). Verified by configuring the whole build and force-re-running compile and
+  JVM tests with the daemon on JDK 21. A JDK 25 *installation* is still required: every module compiles
+  with `jvmToolchain(25)`.
+- **Deploying still requires Java 25.** KVision 9.7.0's "Java 21" change is plugin-only: the runtime jars
+  fsLib's `:core` depends on (`kvision-common-remote`, `kvision-common-types`) remain Java 25 bytecode
+  (class major 69), unchanged from 9.6.0.
+
+- **A stored column layout no longer overrides a column title written in code.** Tabulator's
+  `persistence = true` expands to `columns: ["title", "width", "visible"]`, and on load
+  `mergeDefinition` copies every configured key from the stored layout over the definition in code —
+  so renaming a column never reached anyone who had already opened that list (they had to press
+  *Reset*), and a view whose title depends on context showed whichever variant was opened last.
+  `ViewList.tabulatorInfoPersistenceConfig` now defaults to an explicit object equal to `true` minus
+  the title: `{ sort, filter, headerFilter, group, page: true, columns: ["width", "visible"] }`.
+  Stored widths, visibility and column order still restore, as do sorting, filters, header filters,
+  grouping and pagination. Layouts stored by earlier versions stay valid — only the configured keys
+  are copied, so their stale title is ignored and disappears on the next save. Column groups are
+  matched by title plus child count rather than merged (`Persistence._findColumn`), so renaming a
+  group header orphans its stored entry: the group renders from code and its children's stored widths
+  are lost — read from Tabulator's source, not pinned by an fsLib test.
+
+### Added
+- **`ViewList.persistenceVariant`** (`open val`, default `null`): a view whose **column schema**
+  depends on context gives each context its own stored layout, instead of both sharing one key and
+  applying each other's widths, visibility and order. Excluding the title does not cover this — the
+  contexts still differ in the *set* of columns they build. It is read when the table is built, at the
+  `fsTabulator` call site (which may be `pageListBody()`, an embedded panel, or anywhere else a view
+  builds a table); Tabulator captures its storage id once at init, so a variant discovered later needs
+  the table rebuilt — fsLib does not mutate Tabulator's module internals to re-key a live table. The
+  same property is also how a view **retires** a stored layout after a schema revision, by *composing*
+  the marker with the context (`"FAB-OPERABLE-v2"`, never a bare `"v2"`, which would merge the
+  contexts back together). Note that changing the suffix opens a **new namespace for the whole view** —
+  `columns`, `sort`, `filter`, `headerFilter`, `group` and `page` all hang off the same id — so the view
+  starts without any of the preferences stored under the old key. fsLib ships **no automatic invalidation**: the useful
+  trigger differs per view, and an automatic rule either misses it or discards hand-set widths on every
+  column edit. The property is `protected` — overridden by the view itself, the only place that knows
+  its schema dimensions — and the key composition behind it is private; a view needing a key fsLib would
+  not build passes `persistenceID` to `defaultTabulatorOptions`, which stays equally supported.
+
+### Added (tests)
+- `TabulatorPersistenceTest` (8) — a stored layout carrying the old title renders the **code** title
+  while its stored width and visibility still apply; a `persistence = true` control drives the
+  identical scenario and asserts the **stored** title wins, so the pair shows the key list is the
+  cause rather than some incidental difference in how the table is built; the stored column **order**
+  restores; sorting, filters, the stored page size and the stored **current page** restore in
+  **remote** pagination mode — the mode `defaultTabulatorOptions` actually uses — with the restored
+  page observed in what the loader requests; two variants read distinct stored layouts; and the
+  variant reaches `defaultTabulatorOptions().persistenceID` through a real `ViewList` subclass, which
+  is the assertion that fails if that wiring is ever dropped. Readiness is polled, not slept on.
+
+### Deprecated
+- **`FsTabPanel` / `fsTabPanel`** — retirement condition met. KVision 9.7.0's `TabPanel` disposes its own
+  tabs, so the class no longer overrides anything and behaves exactly like `TabPanel`. It stays, deprecated
+  with a `ReplaceWith`, only for source compatibility, and will be removed in the next major. The
+  characterization test that pinned the upstream defect failed on the upgrade exactly as designed (*"si
+  esto falla, KVision ya corrigió TabPanel.dispose() — retirar FsTabPanel"*) and now pins the upstream fix
+  (`tabPanelCrudoDestruyeSusPestanas`), so a future KVision regression surfaces there. The other ten
+  `FsTabPanelDisposeTest` cases still run against the deprecated shim — and therefore against KVision's
+  own `dispose()` — and pass.
+
+### Unchanged on purpose
+- **`FsTomSelectRemote` / `fsTomSelectRemote` stay.** Their retirement condition requires re-checking
+  `TomSelectRemoteInput.refreshState` at every KVision bump; in 9.7.0 it is unchanged from 9.6.0, so the
+  duplicate-RPC storm is still upstream and the guard is still needed.
+
+### Migration Guide (6.3.0 → 6.4.0)
+Build with Kotlin 2.4.20 and keep deploying on Java 25. Column titles now always come from code, with
+no consumer change required. A list whose columns depend on context **must** override
+`persistenceVariant` to stop the two contexts sharing one stored layout; clearing historical layouts is
+optional. Swap `fsTabPanel` back to KVision's `tabPanel` at your convenience — see `MIGRATION.md`.
+
 ## [6.3.0] - 2026-09-09
 
 First wave of the consumer-measured view-layer gaps parked in `TODO.md` (T-3, T-1, T-4 —

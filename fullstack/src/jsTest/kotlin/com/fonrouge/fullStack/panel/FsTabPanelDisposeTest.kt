@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.fonrouge.fullStack.panel
 
 import com.fonrouge.fullStack.view.ContenedorSintetico
@@ -26,10 +28,12 @@ import kotlin.test.assertTrue
  * cerrar una ficha, la lista embebida **dentro de una pestaña** seguía pidiendo datos cada 5 s, y
  * cada activación de la pestaña sumaba otro huérfano.
  *
- * La causa está en KVision, no en fsLib: `TabPanel` guarda sus pestañas fuera de `children` y
- * sobrescribe `disposeAll()` pero no `dispose()`, así que el recorrido de destrucción nunca las
- * alcanza. [tabPanelCrudoNoDestruyeSusPestanas] fija ese comportamiento como caracterización —
- * cuando KVision lo corrija, **esa** prueba fallará, y ésa es la señal para retirar [FsTabPanel].
+ * La causa estaba en KVision, no en fsLib: `TabPanel` guardaba sus pestañas fuera de `children`
+ * y sobrescribía `disposeAll()` pero no `dispose()`, así que el recorrido de destrucción nunca las
+ * alcanzaba. Se corrigió upstream (rjaros/kvision#584, KVision 9.7.0) y fsLib 6.4.0 deprecó
+ * [FsTabPanel], que ya no sobrescribe nada. [tabPanelCrudoDestruyeSusPestanas] fija ahora la
+ * corrección de upstream; las demás pruebas siguen corriendo contra el shim deprecado y verifican
+ * que conserva su contrato para los consumidores que todavía lo usan.
  */
 class FsTabPanelDisposeTest {
 
@@ -95,15 +99,16 @@ class FsTabPanelDisposeTest {
     }
 
     /**
-     * **Caracterización del defecto de KVision.** El `tabPanel` crudo NO destruye sus pestañas, así
-     * que el registro sobrevive. Documenta por qué existe [FsTabPanel].
+     * **Caracterización de la corrección de KVision.** Desde KVision 9.7.0 (rjaros/kvision#584) el
+     * `tabPanel` crudo SÍ destruye sus pestañas: el hook corre una vez y el registro vuelve a cero.
      *
-     * Verificado contra KVision 9.5.0 y 9.6.0. Cuando KVision sobrescriba `dispose()` en
-     * `TabPanel`, esta prueba fallará: es la señal de que el envoltorio ya no hace falta y debe
-     * retirarse antes de que las pestañas se destruyan dos veces.
+     * Hasta fsLib 6.3.0 (KVision 9.5.0 y 9.6.0) esta prueba fijaba el defecto —esperaba cero hooks
+     * y un registro sobreviviente— y su fallo era la señal para retirar [FsTabPanel]. Falló, como
+     * estaba previsto, al subir a 9.7.0; ahora fija la corrección, así que si volviera a fallar
+     * sería una regresión de KVision y no una señal de retiro.
      */
     @Test
-    fun tabPanelCrudoNoDestruyeSusPestanas() {
+    fun tabPanelCrudoDestruyeSusPestanas() {
         val raiz = SimplePanel()
         val (panel, _) = panelConTabla(raiz, activarSegunda = true, crudo = true)
         assertEquals(1, PeriodicRefreshScheduler.registrationCount)
@@ -111,11 +116,11 @@ class FsTabPanelDisposeTest {
         panel.dispose()
 
         assertEquals(
-            expected = 0,
+            expected = 1,
             actual = hooksDisparados,
-            message = "si esto falla, KVision ya corrigió TabPanel.dispose() — retirar FsTabPanel",
+            message = "KVision 9.7.0 destruye las pestañas de TabPanel; si esto falla, es una regresión de KVision",
         )
-        assertEquals(1, PeriodicRefreshScheduler.registrationCount, "el registro sobrevive: la fuga")
+        assertEquals(0, PeriodicRefreshScheduler.registrationCount, "vuelta a la línea base: sin fuga")
     }
 
     /** También se destruye una pestaña **inactiva**: no depende de que se haya activado. */

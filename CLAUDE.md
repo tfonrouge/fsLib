@@ -8,9 +8,10 @@ FSLib is a Kotlin Multiplatform library (`com.fonrouge.fsLib`) for building full
 
 ## Build Commands
 
-**The Gradle daemon must run on JDK 25** (since 6.0.0 — KVision 9.6.0's plugin requires it). If JDK 25
-isn't the default, pass the Gradle JVM explicitly in every invocation below — the option goes **after**
-`./gradlew`, e.g.:
+**Building fsLib needs a JDK 25 installation** — every module compiles with `jvmToolchain(25)` and no
+toolchain resolver is configured, so Gradle must find JDK 25 locally. The Gradle **daemon** itself may run
+on JDK 21 or newer since 6.4.0 (KVision 9.7.0's plugin targets Java 21; 9.6.0's required 25). To pin the
+daemon JDK, pass it explicitly in every invocation below — the option goes **after** `./gradlew`, e.g.:
 
 ```bash
 ./gradlew -Dorg.gradle.java.home="$(brew --prefix openjdk@25)/libexec/openjdk.jdk/Contents/Home" build
@@ -61,7 +62,7 @@ conformance (test-only) → core + fullstack + memorydb + sql + mongodb
 
 - **`:fullstack`** — Core framework module (commonMain/jvmMain/jsMain). Uses Kilua RPC plugin for frontend-backend communication. Database-engine-agnostic.
   - **jvmMain**: `IRepository` — backend-agnostic interface for CRUD, list queries, lifecycle hooks, permissions, and dependencies. `ConstructorCopier` — shared utility with cached reflection for reconstructing instances using only primary constructor parameters (used by all repository engines). `StandardCrudService` — abstract base class for service implementations that delegate `apiList`/`apiItem` to an `IRepository` (eliminates pass-through boilerplate). `IRolePermissionProvider` / `PermissionRegistry` — abstraction for role-based permission checks. `IUserRepository`, `IChangeLogRepository` — backend-agnostic interfaces. `HelpDocsService` — help documentation service. Full Ktor client/server stack.
-  - **jsMain**: View system — `View`, `ViewItem`, `ViewList`, `ViewDataContainer` for rendering CRUD views (forms use KVision's `FormPanel<T>` directly — `ViewFormPanel` was removed in 3.2.0). `ConfigView`/`ConfigViewItem`/`ConfigViewList`/`ConfigViewContainer` for declarative view configuration. `registerEntityViews()` DSL for declarative view registration (sets service managers, creates/references configs, and tracks default view). Tabulator wrappers (`TabulatorViewList`, `fsTabulator`) for data grids. KVision-workaround components with explicit retirement conditions: `FsTabPanel` (tab disposal) and `FsTomSelectRemote` / `fsTomSelectRemote` (in-flight guard against KVision's duplicate remote-selector loads — see `blueprints/view-consumer-gaps/`). Layout helpers (`formRow`, `formColumn`, `toolBarList`, etc.). `ViewRegistry` — centralized registry for view configurations and RPC service managers. Full KVision UI stack (Bootstrap, FontAwesome, Tabulator, etc.). Also includes UI utility helpers (`toast`, `buttonMenu`, form control helpers, etc.).
+  - **jsMain**: View system — `View`, `ViewItem`, `ViewList`, `ViewDataContainer` for rendering CRUD views (forms use KVision's `FormPanel<T>` directly — `ViewFormPanel` was removed in 3.2.0). `ConfigView`/`ConfigViewItem`/`ConfigViewList`/`ConfigViewContainer` for declarative view configuration. `registerEntityViews()` DSL for declarative view registration (sets service managers, creates/references configs, and tracks default view). Tabulator wrappers (`TabulatorViewList`, `fsTabulator`) for data grids. KVision-workaround component with an explicit retirement condition: `FsTomSelectRemote` / `fsTomSelectRemote` (in-flight guard against KVision's duplicate remote-selector loads — see `blueprints/view-consumer-gaps/`; still needed on KVision 9.7.0). `FsTabPanel` / `fsTabPanel` is **deprecated since 6.4.0**: its retirement condition fired when KVision 9.7.0 fixed `TabPanel.dispose()` (rjaros/kvision#584) — use KVision's `TabPanel` / `tabPanel`. Layout helpers (`formRow`, `formColumn`, `toolBarList`, etc.). `ViewRegistry` — centralized registry for view configurations and RPC service managers. Full KVision UI stack (Bootstrap, FontAwesome, Tabulator, etc.). Also includes UI utility helpers (`toast`, `buttonMenu`, form control helpers, etc.).
   - **commonMain**: Shared RPC service interfaces, API definitions. Source packages: `com.fonrouge.fullStack.*`.
 
 - **`:mongodb`** — MongoDB database engine (JVM-only). `Coll<T: BaseDoc>` — MongoDB implementation of `IRepository` providing aggregation pipelines, lookups, filtering, change logging, and role-based access (built on KMongo coroutine driver). `MongoDb` — database connection management. `FieldPath` — nested property path builder. `MongoRbac` — the **explicit** boot registrar (`register` / `unregister` / `isRegistered`) that wires `MongoRolePermissionProvider` into `PermissionRegistry` for cross-engine permission checks. Registration is **not** automatic (since 5.0.0, D10): a Mongo-backed app calls `MongoRbac.register(roleInUserColl)` once at boot — the Mongo-backed way to populate `PermissionRegistry.rolePermissionProvider`. The fail-closed rule itself is engine-independent: while `rolePermissionProvider` is unset, every repository at the default `permissionEnforcement = Enforce` denies all remote CRUD — reads included — before resolution, so `rootUser()` is never reached. An app without `:mongodb` satisfies it by assigning its own `IRolePermissionProvider` instead.
@@ -101,8 +102,8 @@ conformance (test-only) → core + fullstack + memorydb + sql + mongodb
 
 - Kotlin 2.4.x, Gradle with version catalogs (`gradle/libs.versions.toml`)
 - Backend: Ktor (Netty), MongoDB (KMongo), Exposed (SQL), JWT auth
-- Frontend: KVision 9.6.x, Bootstrap, Tabulator, FontAwesome
-- JVM toolchain: 25 (since 6.0.0 — KVision 9.6.0's plugin + runtime artifacts require Java 25; the Gradle daemon must run on JDK 25, e.g. `-Dorg.gradle.java.home=$(brew --prefix openjdk@25)/libexec/openjdk.jdk/Contents/Home`). fsLib 6.0.0 therefore requires consumers to build with Kotlin 2.4 and **deploy on Java 25**.
+- Frontend: KVision 9.7.x, Bootstrap, Tabulator, FontAwesome
+- JVM toolchain: 25 (since 6.0.0). KVision's runtime artifacts are Java 25 bytecode (verified on 9.6.0 and 9.7.0), so consumers must **deploy on Java 25**; since 6.4.0 consumers build with Kotlin 2.4.20 (what KVision 9.7.0 and Kilua RPC 0.0.46 are built with). Since 6.4.0 the Gradle daemon may run on JDK 21+ (KVision 9.7.0's plugin targets 21), but a JDK 25 installation must be present for the toolchain.
 
 ### Coding Conventions
 
@@ -141,7 +142,7 @@ Follow the cathedral premise. (triggers skill: cathedral-premise)
 - Blueprint skill: business-blueprint-workflow
 - Blueprint root: blueprints/
 - Blueprint mode: LIBRARY (all blueprints; see blueprints/INDEX.md)
-- Build verification: ./gradlew build (Gradle daemon on JDK 25 — see Build Commands)
+- Build verification: ./gradlew build, then ./gradlew :fullstack:jsBrowserTest as a SEPARATE invocation (never `build -x jsBrowserTest :fullstack:jsBrowserTest` — `-x` also excludes the explicitly named task, silently skipping the JS tests); JDK 25 installed — see Build Commands
 - Project language: Kotlin Multiplatform (JVM/JS)
 - Project framework: KVision + Ktor + Kilua RPC (library consumed by downstream apps)
 - Project structure: multi-module (core, fullstack, mongodb, sql, memorydb, ssr, media, conformance (test-only), samples)

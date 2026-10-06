@@ -1,7 +1,8 @@
 /*
  * FsTomSelectRemote — fsLib workaround for KVision's TomSelectRemoteInput firing duplicate
- * remote loads (kvision-tom-select-remote 9.6.0, TomSelectRemoteInput.refreshState lines
- * 117-127: the guard `options[value] == null` stays true for the whole in-flight window, so
+ * remote loads (kvision-tom-select-remote 9.6.0 and 9.7.0 — re-checked on the 9.7.0 bump,
+ * unchanged — TomSelectRemoteInput.refreshState lines 117-127: the guard
+ * `options[value] == null` stays true for the whole in-flight window, so
  * every refreshState() during form population fires another identical RPC and duplicates
  * options — measured at 7-9 RPCs per selector on form open in a real consumer).
  *

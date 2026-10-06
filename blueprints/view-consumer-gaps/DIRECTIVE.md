@@ -3,7 +3,7 @@
 **Authority:** APPROVED
 **Drafted by:** @claude · **Approved by:** @teo (Owner)
 **Effective:** 2026-09-08 · **Adoption decision:** LEDGER L-001
-**Revision:** 2
+**Revision:** 3
 
 ## Owner Directive
 Fix the consumer-measured view-layer gaps T-3, T-1 and T-4 now, and record T-2/T-5 as design
@@ -27,17 +27,27 @@ recommendation").
   where a component's whole text is the key; immediate `gettext` for every interpolated string
   (a mid-string marker mistranslates or leaks) — verifiable: jsTest over the caption provider;
   grep (literals AND `.label` interpolations) shows no raw user-facing string in the file.
-- OC-04: T-2 and T-5 each carry a LEDGER design entry (options, recommendation, falsification
-  condition) and no implementation item exists for them in PLAN — verifiable: LEDGER L-006/L-007
-  present; PLAN carries them only as deferred rows.
+- OC-04: T-5 carries a LEDGER design entry (options, recommendation, falsification condition) and
+  no implementation item exists for it in PLAN — verifiable: LEDGER L-007 present; PLAN carries it
+  only as a deferred row. (L-006 stays as the record of the options T-2 was chosen from; T-2's
+  implementation is OC-05.)
+- OC-05: A stored Tabulator column layout never overrides a column title written in code, while the
+  stored width, visibility and column order — and sorting, filters, header filters, grouping and
+  pagination — keep being restored; layouts stored by earlier versions stay readable and lose their
+  stale title on the next save; and a view whose columns depend on context can key its stored layout
+  per variant — verifiable: jsTest seeding a stored layout that carries the old title and asserting
+  the code title renders with the stored width applied, with a `persistence = true` control that
+  asserts the stored title wins (so the key list is shown to be the cause); jsTest that sort, filter
+  and page still restore; jsTest over the variant key join.
 
 ## Non-Goals
-- Full jsMain string sweep; `:core` enum label changes; upstream patch submission; T-2/T-5 build.
+- Full jsMain string sweep; `:core` enum label changes; upstream patch submission; T-5 build.
 
 ## Governing Constraints
 - Additive public API only — no removal or signature change of existing symbols (SemVer minor).
 - `FsTomSelectRemote*` is a workaround and carries an explicit retirement condition — binding: L-003.
 - New i18n keys use English sources; existing Spanish enum labels wrap at point of use — binding: L-005.
+- Column-layout persistence keeps everything `persistence = true` persists except the column title — binding: L-012.
 
 ## Amendment Rule
 Only an explicit Owner decision may change this file. Each amendment increments

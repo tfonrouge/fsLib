@@ -51,13 +51,41 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
 ) {
     companion object {
         /**
-         * A dynamic variable representing the configuration for persistence of tabulator-info.
-         * This variable can be used to enable or disable the persistence mechanism or to define custom
-         * configurations based on its value.
+         * Tabulator `persistence` configuration used by [defaultTabulatorOptions], and the
+         * application-wide override point for consumers (assign another value at boot to change it).
          *
-         * See `https://tabulator.info/docs/6.3/persist`
+         * **What is persisted:** sorting, filters, header filters, grouping, pagination and — per
+         * column — only `width` and `visible`. The column **order** is persisted too: Tabulator
+         * rebuilds the definition list in the stored order whatever this key list says.
+         *
+         * **Why the column title is NOT persisted (since 6.4.0).** Tabulator's `persistence = true`
+         * expands to `columns: ["title", "width", "visible"]`, and on load `mergeDefinition` copies
+         * every configured key from the stored layout over the definition written in code. A title
+         * stored once therefore outlived every later edit: renaming a column never reached a browser
+         * that had already opened that list, and a view whose title depends on context showed
+         * whichever variant was opened last. Dropping `title` from the key list makes the code the
+         * single source of truth for titles; everything else `true` did is kept verbatim.
+         *
+         * **Layouts stored by earlier versions stay valid.** They still carry a `title`, but
+         * `mergeDefinition` copies only the keys listed here, so the stale title is ignored, and it
+         * disappears from storage on the next save (a resize, a move, a show/hide).
+         *
+         * **Column groups** are matched by title plus child count rather than merged key by key
+         * (`Persistence._findColumn`), so renaming a group header orphans its stored entry: the group
+         * renders from code and the stored widths of its children are lost. That is the cost of a
+         * rename, not a regression — and it is read from Tabulator's source, not covered by an fsLib
+         * test, so treat it as the documented reading of upstream behaviour rather than a pinned one.
+         *
+         * See `https://tabulator.info/docs/6.5/persist`.
          */
-        var tabulatorInfoPersistenceConfig: dynamic = true
+        var tabulatorInfoPersistenceConfig: dynamic = obj {
+            sort = true
+            filter = true
+            headerFilter = true
+            group = true
+            page = true
+            columns = arrayOf("width", "visible")
+        }
     }
 
     /**
@@ -92,6 +120,54 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
         _configViewItem = configViewItemMap[name]?.unsafeCast<ConfigViewItem<T, ID, *, FILT, *>>()
         return _configViewItem
     }
+
+    /**
+     * Distinguishes the stored layout of a view whose **column schema** depends on context.
+     *
+     * The storage key is `tabulator-<class simpleName>[-<variant>]-columns`. Differences in column
+     * *titles* no longer need a variant — titles always come from code now. A variant is needed when
+     * the contexts differ in anything that is actually persisted: the **set** of columns, their
+     * **order**, their **width** or **visibility**. Two contexts that add different columns and share
+     * one key keep applying each other's widths and order to whichever opened last.
+     *
+     * **Compose, do not replace.** The same string is also how a view retires its own stored layout
+     * after a schema revision — but the revision marker is *appended* to the context, never
+     * substituted for it: `"FAB-OPERABLE-v2"`, not `"v2"`. Collapsing the contexts into one key is
+     * the defect this property exists to prevent. Prefer stable, untranslated tokens; a display label
+     * changes with the UI language and would silently re-key every user's layout.
+     *
+     * **Adding or changing a suffix opens a new namespace for the whole view**, not just its columns:
+     * `columns`, `sort`, `filter`, `headerFilter`, `group` and `page` all hang off the same id, so the
+     * view starts without any of the preferences held under the previous key. That is a deliberate
+     * reset, not a no-op.
+     *
+     * **It is read when the table is built** — wherever that happens: `defaultTabulatorOptions()` is
+     * evaluated at the `fsTabulator` call site, which may be `pageListBody()`, an embedded panel, or
+     * any other place a view builds a table. Tabulator captures its storage id once, at table
+     * initialisation, so a variant discovered *after* that cannot re-key the existing table: derive it
+     * from state that is available when the table is built, or rebuild the table once it is known.
+     * fsLib deliberately does not reach into Tabulator's module internals to re-key a live table.
+     *
+     * `protected`: it is overridden by the view itself, which is the only place that knows its schema
+     * dimensions. Overriding it keeps the key in one place instead of rebuilding the options at each
+     * `fsTabulator` call site. Passing `persistenceID` to [defaultTabulatorOptions] is equally
+     * supported and is the right tool when the key must be derived from the view's own column
+     * definitions rather than from a fixed set of contexts.
+     *
+     * Each variant keeps its own stored layout, so [resetColumns] clears the current variant only.
+     */
+    protected open val persistenceVariant: String? get() = null
+
+    /**
+     * The `persistenceID` [defaultTabulatorOptions] uses: the class name, suffixed with
+     * [persistenceVariant] when the view declares one.
+     *
+     * `private`: a view states *what* distinguishes its schema by overriding [persistenceVariant],
+     * and fsLib composes the key from it. A view that needs a key fsLib would not build — one derived
+     * from its own column definitions, say — passes `persistenceID` to [defaultTabulatorOptions]
+     * instead, which stays fully supported.
+     */
+    private fun persistenceId(): String? = persistenceIdOf(this::class.simpleName, persistenceVariant)
 
     /**
      * Resets the persisted column layout settings for a Tabulator table and reloads the page.
@@ -570,8 +646,12 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
      * @param paginationMode Mode for pagination, either `REMOTE` or `LOCAL`. Defaults to `PaginationMode.REMOTE`.
      * @param paginationSize Number of rows per page. Defaults to `100`.
      * @param paginationSizeSelector Options for selecting page sizes. Defaults to `arrayOf(10, 20, 50, 100, 200, 500)`.
-     * @param persistence Enables or disables state persistence for the table. Defaults to `true`.
-     * @param persistenceID Unique identifier for state persistence. Defaults to the `simpleName` of the class.
+     * @param persistence Tabulator state persistence. Defaults to [tabulatorInfoPersistenceConfig] —
+     * an object equal to Tabulator's `persistence = true` minus the column title — which consumers may
+     * reassign at boot to change it application-wide.
+     * @param persistenceID Key the persisted state is stored under. Defaults to [persistenceId]: the
+     * view's class `simpleName`, suffixed with [persistenceVariant] when the view declares one. Pass it
+     * explicitly to derive the key some other way (e.g. from the view's own column definitions).
      * @param rowContextMenu Context menu configuration for table rows. Defaults to the result of `contextRowMenuGenerator()`.
      * @param selectableRows Enables selection of rows. Defaults to `null`.
      * @param rowHeader Configures settings for the row header column, if enabled, such as selection controls. Defaults to `null` or specific configuration based on `selectableRows
@@ -606,7 +686,7 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
         paginationSize: Int? = 100,
         paginationSizeSelector: dynamic = arrayOf(10, 20, 50, 100, 200, 500),
         persistence: dynamic = tabulatorInfoPersistenceConfig,
-        persistenceID: String? = this::class.simpleName,
+        persistenceID: String? = persistenceId(),
         rowContextMenu: dynamic = { contextRowMenuGenerator() },
         selectableRows: dynamic = 1,
         rowHeader: dynamic = if (selectableRows is Number && selectableRows > 1) {
@@ -741,3 +821,11 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
      */
     abstract fun Container.pageListBody()
 }
+
+/**
+ * Joins a view's base storage id with its [ViewList.persistenceVariant]: `Base-variant`, or `Base`
+ * when the view declares no variant. A blank variant is treated as none, so an override that returns
+ * `""` before its data loads does not create a second, stray storage key.
+ */
+internal fun persistenceIdOf(base: String?, variant: String?): String? =
+    base?.let { b -> variant?.takeIf { it.isNotBlank() }?.let { "$b-$it" } ?: b }

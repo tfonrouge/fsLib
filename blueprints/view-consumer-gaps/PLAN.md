@@ -29,11 +29,20 @@ T-3 → T-1 → T-4.
 | **P2.1** | `verifyStagingDeploy` preflight (ACS-06): standalone task, depended on by `publishToCentralPortal` — staged version must equal the catalog version and the staged artifact set must equal the publication inventory derived from the modules applying `fslib-publishing` (13 today; `:conformance` never appears). Replaces the accepts-any-single-version gap. | L-010 | `build.gradle.kts` | ✅ done (2026-09-09 — positive + missing-module + mixed-version paths exercised against the real 6.3.0 staging) |
 | **P2.2** | CI browser-test step (ACS-07): `:fullstack:jsBrowserTest` on the JDK-25 workflow (ChromeHeadless; the only jsTest source set). Turns the wave's 92-test local evidence into continuous verification. | L-010 | `.github/workflows/build.yml` | ✅ done (2026-09-09 — first CI run is the runner-environment proof) |
 
-## Deferred (no implementation this wave — OC-04)
+## Phase 3 — T-2: column-layout persistence (DIRECTIVE R3 / OC-05, LEDGER L-012)
+
+| ID | Step | Advances | File anchors | Status |
+|----|------|----------|--------------|--------|
+| **P3.1** | `tabulatorInfoPersistenceConfig` default becomes an explicit object equal to `persistence = true` minus the column title (`columns: ["width", "visible"]`), with KDoc stating what persists, why not the title, how stored layouts from earlier versions behave, and the column-group caveat. | OC-05 | `view/ViewList.kt` (companion) | ✅ done |
+| **P3.2** | jsTest: a stored layout carrying the old title renders the code title with the stored width applied; `persistence = true` control asserts the stored title wins; stored `visible` still hides; stored column ORDER restores; sort, filter, stored page size **and stored current page** restore in **remote** pagination mode (the mode `defaultTabulatorOptions` uses), with the restored page observed in the loader's request; readiness by polling rather than a fixed sleep. | OC-05 | `jsTest/.../tabulator/TabulatorPersistenceTest.kt` (new) | ✅ done (8 tests) |
+| **P3.3** | Variant keying: `protected open val persistenceVariant` + `private persistenceId()` (L-014/L-015), used as the `persistenceID` default; join extracted as `persistenceIdOf`. Pinned at three levels: the join, two keys reading distinct stored layouts, and the production path `persistenceVariant` → `persistenceId()` → `defaultTabulatorOptions().persistenceID` through a real `ViewList` subclass — the last verified by mutation (reverting the default to `simpleName` fails exactly that test). KDoc states the build-time limitation, the composition rule and the namespace reset. | OC-05 | `view/ViewList.kt`, same test file | ✅ done |
+| **P3.4** | ~~Opt-in automatic signature invalidation~~ — **withdrawn before release** (L-013): the implementation tracked field+title, so it invalidated on the title changes that no longer need it and missed the width changes it existed for, and its first-sighting rule could not deliver the correction it was added for. Replaced by documenting [ViewList.persistenceVariant] as the explicit version knob. | OC-05 | `view/ViewList.kt` (removed) | ⬜ withdrawn |
+| **P3.5** | CHANGELOG + MIGRATION entries folded into the 6.4.0 section; consumer note for mppArel. | OC-05 | `CHANGELOG.md`, `MIGRATION.md` | ✅ done |
+
+## Deferred (no implementation — OC-04)
 
 | Task | Ledger | Reopens as |
 |------|--------|-----------|
-| T-2 Tabulator layout persistence (title/order freeze) | L-006 | PLAN item + DIRECTIVE amendment when the Owner picks option (a)/(b)/(c) |
 | T-5 `openViewItem` close/write callback | L-007 | PLAN item + DIRECTIVE amendment when the Owner picks the callback semantics |
 
 ## Directive Completeness
@@ -43,4 +52,5 @@ T-3 → T-1 → T-4.
 | OC-01 | P1.1 + P1.2 + consumer 1-RPC measure (mppArel, `performance.getEntriesByType('resource')`) | 2/3 | IN PROGRESS | MIXED | P1.1 built (set guard, lateinit, param-prep order — L-008); `InFlightValueGuardTest` green incl. A→B→A regression (jsBrowserTest 2026-09-09); consumer measure pending — needs mppArel to adopt `fsTomSelectRemote` on a released fsLib |
 | OC-02 | P1.3 + P1.4 | 2/2 | MET | REPLAYABLE | `ConfirmCancelTextsTest` green (stubbed I18nManager observes all four keys) |
 | OC-03 | P1.5 + P1.6 + no-raw-string check on helpButtons.kt (literals AND `.label` interpolations) + `View.startDisplayPage` provider wiring | 4/4 | MET | REPLAYABLE | `HelpCaptionTest` green; widened grep clean 2026-09-09 (ACS-05 sites fixed); open-time wiring in the open/click handlers AND fsLib's own View caller (ACS-04) |
-| OC-04 | L-006 + L-007 rows present; PLAN carries them only as deferred | 2/2 | MET | REPLAYABLE | LEDGER L-006/L-007; PLAN §Deferred |
+| OC-04 | L-007 row present; PLAN carries T-5 only as a deferred row | 1/1 | MET | REPLAYABLE | LEDGER L-007; PLAN §Deferred (T-2 moved to OC-05 by DIRECTIVE R3) |
+| OC-05 | P3.1 + P3.2 + P3.3 | 3/3 | MET | REPLAYABLE | `TabulatorPersistenceTest` 9/9 green — incl. the `persistence = true` control that reproduces the defect, stored order, stored current page, and two variants reading distinct stored layouts; verified against the `Persistence.js` fsLib ships (Tabulator 6.5.2). P3.4 withdrawn (L-013), so no automatic invalidation is claimed |
