@@ -3,12 +3,13 @@
 **Authority:** APPROVED
 **Drafted by:** @claude · **Approved by:** @teo (Owner)
 **Effective:** 2026-09-08 · **Adoption decision:** LEDGER L-001
-**Revision:** 3
+**Revision:** 4
 
 ## Owner Directive
-Fix the consumer-measured view-layer gaps T-3, T-1 and T-4 now, and record T-2/T-5 as design
-decisions only — per the recommendation adopted in chat 2026-09-08 ("start the fixes per your
-recommendation").
+Close in fsLib the generic ViewList-layer gaps, measured in consumers, that force them to replace
+standard behaviour with their own — T-3, T-1, T-4 (2026-09-08), T-2 (R3) and T-6 (R4) — keeping
+the standard order, extensibility and governance of a shared library; T-5 stays a recorded design
+decision.
 
 ## Outcome Criteria
 - OC-01: With `fsTomSelectRemote` in place of `tomSelectRemote`, a `refreshState()` call while a
@@ -39,15 +40,26 @@ recommendation").
   the code title renders with the stored width applied, with a `persistence = true` control that
   asserts the stored title wins (so the key list is shown to be the cause); jsTest that sort, filter
   and page still restore; jsTest over the variant key join.
+- OC-06: A ViewList can suppress Create from the default context row menu without losing the
+  default CRUD menu or altering its order: `showCreateInContextRowMenu` (default: follows
+  `showCreateInToolbar`) governs only that entry, the two surfaces can be set apart, `editable()`
+  and `showDefaultContextRowMenu()` keep their current meaning, and the row menu never holds
+  consecutive separators nor ends in one (CONTRACT I-7, I-8) — verifiable: jsTest over the pure
+  default-CRUD decision and separator normalization, plus jsTest through a real ViewList fixture
+  proving the production row-menu generator applies them; each new guard mutation-checked.
 
 ## Non-Goals
 - Full jsMain string sweep; `:core` enum label changes; upstream patch submission; T-5 build.
+- Per-operation visibility for Update/Delete; header menus or any menu generator other than the
+  ViewList row menu; edits to consumer repositories; version bump or release (separately authorised).
 
 ## Governing Constraints
 - Additive public API only — no removal or signature change of existing symbols (SemVer minor).
 - `FsTomSelectRemote*` is a workaround and carries an explicit retirement condition — binding: L-003.
 - New i18n keys use English sources; existing Spanish enum labels wrap at point of use — binding: L-005.
 - Column-layout persistence keeps everything `persistence = true` persists except the column title — binding: L-012.
+- Row-menu Create follows the toolbar by default and is separable per view — binding: L-017.
+- Separator normalization removes only redundant separators, in the ViewList row menu only — binding: L-018.
 
 ## Amendment Rule
 Only an explicit Owner decision may change this file. Each amendment increments

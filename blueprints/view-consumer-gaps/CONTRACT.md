@@ -39,6 +39,19 @@ API_SURFACE duty per LEDGER L-002). KDoc on the symbols references this contract
   is also the knob that retires a stored layout on purpose, **composed with the context rather than
   replacing it** (L-013/L-014). Changing that suffix re-keys the view's whole persistence namespace —
   `columns`, `sort`, `filter`, `headerFilter`, `group`, `page` — not only its columns.
+- **I-7 (row-menu Create is its own surface; target — T-6).** The Create entry of the default
+  ViewList context row menu is governed by `showCreateInContextRowMenu`, which by default returns
+  `showCreateInToolbar`, so both surfaces stay aligned unless a view sets them apart. Detail, Update
+  and Delete keep their positions relative to each other whether or not Create is present.
+  `editable() == false` still suppresses Create, Update and Delete; `showDefaultContextRowMenu()
+  == false` still suppresses every default CRUD entry. The toolbar reads its flag once, when it is
+  built; the row menu reads its own each time it opens and passes the clicked row (the toolbar uses
+  the current selection) — so a state-dependent getter can make the two diverge visually (L-017).
+- **I-8 (row-menu separators; target — T-6).** The generated ViewList context row menu never
+  contains two consecutive separators and never ends in one; no non-separator entry is reordered or
+  removed; where two groups were separated, exactly one separator remains between them. This
+  applies to redundant separators contributed by consumer extensions too (two contiguous
+  separators are no extra group in Tabulator); no separator is ever added. Header menus and every other menu generator are outside this invariant (L-018).
 
 ## New public API (additive — SemVer minor)
 
@@ -49,9 +62,9 @@ API_SURFACE duty per LEDGER L-002). KDoc on the symbols references this contract
 | `Container.fsTomSelectRemote(...)` | DSL builder | same | drop-in for `tomSelectRemote(...)` |
 | `Container.fsTomSelectRemoteInput(...)` | DSL builder | same | drop-in for `tomSelectRemoteInput(...)` |
 | `Container.helpButtons(viewClassName, viewLabelProvider: () -> String, moduleSlug, showTutorial)` | overload | `fullstack` jsMain · `com.fonrouge.fullStack.layout` | carries the implementation; `String` overload delegates |
-
 | `ViewList.persistenceVariant` | `protected open val` (default `null`) | `fullstack` jsMain · `com.fonrouge.fullStack.view` | subclass surface: a view suffixes its own stored-layout key; read when the table is built |
 | `ViewList.tabulatorInfoPersistenceConfig` | companion `var` — **default value changed** | same | now an explicit object equal to `persistence = true` minus the column title |
+| `ViewList.showCreateInContextRowMenu` | `open val Boolean` (default `get() = showCreateInToolbar`) | same | **target — T-6, planned for 6.5.0, not yet implemented**; governs only the row-menu Create entry (I-7) |
 
 `persistenceId()` is **private** and `persistenceIdOf` **internal** — the key composition and its
 testable join are fsLib's, not surface a consumer calls; `persistenceID` on `defaultTabulatorOptions`
@@ -80,3 +93,10 @@ itself, as ErsaPack's `persistenciaPorFirma` already does.
   provider). A consumer calling `helpButtons` directly with a label that loads after construction
   should use the provider overload; the `String` overload necessarily keeps a fixed label
   (unchanged behavior).
+- **T-6 (target, 6.5.0):** a list with `showCreateInToolbar = false` stops offering Create on
+  right-click by default. To keep a row-contextual Create while hiding the toolbar button, override
+  `showCreateInContextRowMenu = true`. A workaround that turns the default menu off
+  (`showDefaultContextRowMenu = { false }`) only to rebuild Detail/Update/Delete without Create can
+  go — the switch and the rebuilt entries only; the list's own entries, `showCreateInToolbar = false`
+  and anything else the same files carry stay — and the list returns to the standard menu and order
+  (LEDGER L-019 lists the known ones and exactly what each keeps).

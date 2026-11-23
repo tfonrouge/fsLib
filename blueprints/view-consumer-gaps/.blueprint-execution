@@ -1,2 +1,3 @@
 ## Current Execution
-- Active: OC-01 · awaiting mppArel adoption of 6.3.0 (1-RPC measure) · P2.1/P2.2 landed, first CI run pending
+- Active: OC-06 · P4.1 governance committed on `feat/viewlist-context-row-create`; next P4.2 (behaviour-preserving refactor + characterization), each commit Owner-reviewed
+- Parallel: OC-01 · awaiting mppArel adoption of `fsTomSelectRemote` on a released fsLib that contains it (available since 6.3.0) — 1-RPC measure
