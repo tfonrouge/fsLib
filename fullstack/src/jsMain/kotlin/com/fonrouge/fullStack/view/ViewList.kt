@@ -580,6 +580,7 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
             defaultCrudRowTasks(
                 showDefaultContextRowMenu = { showDefaultContextRowMenu() },
                 editable = { editable() },
+                showCreate = { showCreateInContextRowMenu },
             ).forEach { crudTask ->
                 menu += crudRowMenuItem(crudTask, item)
             }
@@ -808,9 +809,27 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
     /**
      * Set to false to suppress the "Create" button from the toolbar (e.g. when the view
      * provides its own creation entry point such as a wizard).
-     * Update and Delete buttons are unaffected.
+     * Update and Delete buttons are unaffected. The Create entry of the default context row menu
+     * follows [showCreateInContextRowMenu], which returns this value unless a view overrides it.
      */
     open val showCreateInToolbar: Boolean = true
+
+    /**
+     * Whether the default context row menu offers «Create» (blueprints/view-consumer-gaps, CONTRACT I-7).
+     *
+     * By default it returns [showCreateInToolbar], so the toolbar and the row menu stay aligned unless a
+     * view sets them apart — e.g. toolbar off and row menu on, when creating depends on the clicked row.
+     * It governs only the Create entry: Detail, Update and Delete keep their relative positions;
+     * `editable() == false` still suppresses Create, Update and Delete, and
+     * `showDefaultContextRowMenu() == false` still suppresses every default entry.
+     *
+     * The two surfaces are evaluated at different times: the toolbar reads [showCreateInToolbar] once,
+     * when it is built, while the row menu reads this property each time it opens, and only when Create
+     * could be offered. Both run [goActionUrl] with [CrudTask.Create], but the row menu passes the
+     * clicked row whereas the toolbar uses the current selection. A getter that depends on state can
+     * therefore make the two surfaces differ visually if that state changes after the toolbar is built.
+     */
+    open val showCreateInContextRowMenu: Boolean get() = showCreateInToolbar
 
     /**
      * allows processing JavaScript array arrived from the backend
@@ -851,22 +870,26 @@ internal fun persistenceIdOf(base: String?, variant: String?): String? =
 
 /**
  * Decides which default CRUD entries the ViewList context row menu offers, in menu order
- * (blueprints/view-consumer-gaps, T-6): none when [showDefaultContextRowMenu] is `false`;
- * otherwise Detail ([CrudTask.Read]), followed by Create, Update and Delete when [editable] is `true`.
+ * (blueprints/view-consumer-gaps, T-6, CONTRACT I-7): none when [showDefaultContextRowMenu] is
+ * `false`; Detail ([CrudTask.Read]) alone when [editable] is `false`; otherwise Detail, Create, Update
+ * and Delete, with Create left out when [showCreate] is `false` (the others keep their relative order).
  *
- * The flags are passed as functions to keep the generator's lazy evaluation:
- * [showDefaultContextRowMenu] is called exactly once and [editable] only when the former returned
- * `true`.
+ * The flags are passed as functions to keep the generator's lazy evaluation: each is called at most
+ * once, in parameter order, and only while it can still change the result — [editable] only when
+ * [showDefaultContextRowMenu] returned `true`, [showCreate] only when [editable] did.
  *
  * @param showDefaultContextRowMenu Whether the default CRUD entries are shown at all.
  * @param editable Whether the list allows Create, Update and Delete.
+ * @param showCreate Whether the row menu offers Create ([ViewList.showCreateInContextRowMenu]).
  * @return The CRUD tasks of the default entries, in display order.
  */
 internal fun defaultCrudRowTasks(
     showDefaultContextRowMenu: () -> Boolean,
     editable: () -> Boolean,
+    showCreate: () -> Boolean,
 ): List<CrudTask> = when {
     !showDefaultContextRowMenu() -> emptyList()
-    editable() -> listOf(CrudTask.Read, CrudTask.Create, CrudTask.Update, CrudTask.Delete)
-    else -> listOf(CrudTask.Read)
+    !editable() -> listOf(CrudTask.Read)
+    showCreate() -> listOf(CrudTask.Read, CrudTask.Create, CrudTask.Update, CrudTask.Delete)
+    else -> listOf(CrudTask.Read, CrudTask.Update, CrudTask.Delete)
 }

@@ -39,7 +39,7 @@ API_SURFACE duty per LEDGER L-002). KDoc on the symbols references this contract
   is also the knob that retires a stored layout on purpose, **composed with the context rather than
   replacing it** (L-013/L-014). Changing that suffix re-keys the view's whole persistence namespace —
   `columns`, `sort`, `filter`, `headerFilter`, `group`, `page` — not only its columns.
-- **I-7 (row-menu Create is its own surface; target — T-6).** The Create entry of the default
+- **I-7 (row-menu Create is its own surface; T-6 — implemented, unreleased).** The Create entry of the default
   ViewList context row menu is governed by `showCreateInContextRowMenu`, which by default returns
   `showCreateInToolbar`, so both surfaces stay aligned unless a view sets them apart. Detail, Update
   and Delete keep their positions relative to each other whether or not Create is present.
@@ -64,7 +64,7 @@ API_SURFACE duty per LEDGER L-002). KDoc on the symbols references this contract
 | `Container.helpButtons(viewClassName, viewLabelProvider: () -> String, moduleSlug, showTutorial)` | overload | `fullstack` jsMain · `com.fonrouge.fullStack.layout` | carries the implementation; `String` overload delegates |
 | `ViewList.persistenceVariant` | `protected open val` (default `null`) | `fullstack` jsMain · `com.fonrouge.fullStack.view` | subclass surface: a view suffixes its own stored-layout key; read when the table is built |
 | `ViewList.tabulatorInfoPersistenceConfig` | companion `var` — **default value changed** | same | now an explicit object equal to `persistence = true` minus the column title |
-| `ViewList.showCreateInContextRowMenu` | `open val Boolean` (default `get() = showCreateInToolbar`) | same | **target — T-6, planned for 6.5.0, not yet implemented**; governs only the row-menu Create entry (I-7) |
+| `ViewList.showCreateInContextRowMenu` | `open val Boolean` (default `get() = showCreateInToolbar`) | same | **T-6 — implemented, unreleased (planned for 6.5.0)**; governs only the row-menu Create entry (I-7) |
 
 `persistenceId()` is **private** and `persistenceIdOf` **internal** — the key composition and its
 testable join are fsLib's, not surface a consumer calls; `persistenceID` on `defaultTabulatorOptions`

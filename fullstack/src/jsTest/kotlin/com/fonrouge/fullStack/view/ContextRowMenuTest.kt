@@ -22,6 +22,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -76,9 +77,15 @@ private class RowMenuConfigItem(
  * two ways: [productionCallbackMenu] invokes the `rowContextMenu` callback that
  * `defaultTabulatorOptions()` hands Tabulator (no table is built, so the resolved row is `null`), and
  * the tests call [ViewList.contextRowMenuFor] — the body that callback runs — for a non-null row.
+ *
+ * Both Create flags log each read. [toolbarCreate] is what [showCreateInToolbar] returns; when
+ * [rowMenuCreate] is `null` the view does not set the row-menu flag apart, so
+ * [showCreateInContextRowMenu] runs the production default getter (`super`).
  */
 private class RowMenuFixtureList(
     configViewItem: RowMenuConfigItem?,
+    private val toolbarCreate: Boolean = true,
+    private val rowMenuCreate: Boolean? = null,
 ) : ViewList<RowMenuDoc, String, ApiFilter, Unit>(
     configView = configViewList<RowMenuDoc, String, RowMenuFixtureList, ApiFilter, Unit, Any>(
         viewKClass = RowMenuFixtureList::class,
@@ -92,6 +99,18 @@ private class RowMenuFixtureList(
 
     /** Every navigation the menu actions asked for, as (task, row). */
     val navigations = mutableListOf<Pair<CrudTask, RowMenuDoc?>>()
+
+    override val showCreateInToolbar: Boolean
+        get() {
+            callLog += "showCreateInToolbar"
+            return toolbarCreate
+        }
+
+    override val showCreateInContextRowMenu: Boolean
+        get() {
+            callLog += "showCreateInContextRowMenu"
+            return rowMenuCreate ?: super.showCreateInContextRowMenu
+        }
 
     override fun contextRowMenu(item: RowMenuDoc): List<TabulatorMenuItem>? {
         callLog += "contextRowMenu(${item._id})"
@@ -128,10 +147,11 @@ private fun describe(menu: Array<TabulatorMenuItem>): List<String> = menu.map {
 }
 
 /**
- * Characterizes the **current** ViewList context row menu (blueprints/view-consumer-gaps P4.2), before
- * T-6 changes any behaviour: the default-CRUD decision as a pure function, and the production
- * generator through the callback Tabulator uses — its entries, groups, order, captured row, labels and
- * the order and number of callback invocations.
+ * The ViewList context row menu (blueprints/view-consumer-gaps, T-6): the default-CRUD decision as a
+ * pure function, and the production generator through the callback Tabulator uses — its entries,
+ * groups, order, captured row, labels and the order and number of callback invocations.
+ * P4.2 characterized the menu before any behaviour change; P4.3 adds the row-menu Create flag
+ * (CONTRACT I-7), whose read now follows `editable` in the call logs.
  */
 class ContextRowMenuTest {
 
@@ -162,12 +182,14 @@ class ContextRowMenuTest {
         ConfigViewItem.contextMenuDefault = previousContextMenuDefault
     }
 
-    /** A list whose two flags log each evaluation. */
+    /** A list whose flags log each evaluation (see [RowMenuFixtureList] for the two Create flags). */
     private fun loggedList(
         config: RowMenuConfigItem? = RowMenuConfigItem(),
         showDefault: Boolean = true,
         editable: Boolean = true,
-    ) = RowMenuFixtureList(config).apply {
+        toolbarCreate: Boolean = true,
+        rowMenuCreate: Boolean? = null,
+    ) = RowMenuFixtureList(config, toolbarCreate, rowMenuCreate).apply {
         showDefaultContextRowMenu = { callLog += "showDefaultContextRowMenu"; showDefault }
         this.editable = { callLog += "editable"; editable }
     }
@@ -178,7 +200,7 @@ class ContextRowMenuTest {
     fun decisionEditableByDefaultIsDetailCreateUpdateDelete() {
         assertEquals(
             listOf(CrudTask.Read, CrudTask.Create, CrudTask.Update, CrudTask.Delete),
-            defaultCrudRowTasks(showDefaultContextRowMenu = { true }, editable = { true }),
+            defaultCrudRowTasks(showDefaultContextRowMenu = { true }, editable = { true }, showCreate = { true }),
         )
     }
 
@@ -186,7 +208,7 @@ class ContextRowMenuTest {
     fun decisionNotEditableIsDetailOnly() {
         assertEquals(
             listOf(CrudTask.Read),
-            defaultCrudRowTasks(showDefaultContextRowMenu = { true }, editable = { false }),
+            defaultCrudRowTasks(showDefaultContextRowMenu = { true }, editable = { false }, showCreate = { true }),
         )
     }
 
@@ -196,9 +218,10 @@ class ContextRowMenuTest {
         val tasks = defaultCrudRowTasks(
             showDefaultContextRowMenu = { asked += "show"; false },
             editable = { asked += "editable"; true },
+            showCreate = { asked += "create"; true },
         )
         assertEquals(emptyList(), tasks)
-        assertEquals(listOf("show"), asked, "editable() is not evaluated when the default menu is off")
+        assertEquals(listOf("show"), asked, "no other flag is evaluated when the default menu is off")
     }
 
     @Test
@@ -207,8 +230,33 @@ class ContextRowMenuTest {
         defaultCrudRowTasks(
             showDefaultContextRowMenu = { asked += "show"; true },
             editable = { asked += "editable"; false },
+            showCreate = { asked += "create"; true },
         )
-        assertEquals(listOf("show", "editable"), asked)
+        assertEquals(listOf("show", "editable"), asked, "the Create flag is not evaluated when not editable")
+        asked.clear()
+        defaultCrudRowTasks(
+            showDefaultContextRowMenu = { asked += "show"; true },
+            editable = { asked += "editable"; true },
+            showCreate = { asked += "create"; false },
+        )
+        assertEquals(listOf("show", "editable", "create"), asked)
+    }
+
+    /** Mutation target (P4.3): offering Create regardless of [showCreate] fails here. */
+    @Test
+    fun decisionWithoutCreateIsDetailUpdateDelete() {
+        assertEquals(
+            listOf(CrudTask.Read, CrudTask.Update, CrudTask.Delete),
+            defaultCrudRowTasks(showDefaultContextRowMenu = { true }, editable = { true }, showCreate = { false }),
+        )
+    }
+
+    @Test
+    fun decisionCreateFlagDoesNotRestoreCreateWhenNotEditable() {
+        assertEquals(
+            listOf(CrudTask.Read),
+            defaultCrudRowTasks(showDefaultContextRowMenu = { true }, editable = { false }, showCreate = { true }),
+        )
     }
 
     // ── The production callback (no table, so the resolved row is null) ─────────────────────────
@@ -226,9 +274,13 @@ class ContextRowMenuTest {
             "each default entry keeps its CRUD icon",
         )
         assertEquals(
-            listOf("labelId(null)", "showDefaultContextRowMenu", "editable"),
+            listOf(
+                "labelId(null)", "showDefaultContextRowMenu", "editable",
+                "showCreateInContextRowMenu", "showCreateInToolbar",
+            ),
             callLog,
-            "a null row consults neither contextMenuItems nor contextRowMenu",
+            "the row-menu flag delegates to the toolbar flag by default; a null row consults neither " +
+                "contextMenuItems nor contextRowMenu",
         )
     }
 
@@ -277,7 +329,10 @@ class ContextRowMenuTest {
             describe(menu),
         )
         assertEquals(
-            listOf("labelId(null)", "showDefaultContextRowMenu", "editable", "contextMenuDefault(item=null)"),
+            listOf(
+                "labelId(null)", "showDefaultContextRowMenu", "editable",
+                "showCreateInContextRowMenu", "showCreateInToolbar", "contextMenuDefault(item=null)",
+            ),
             callLog,
         )
         assertNull(config.item, "the stale item is overwritten with the resolved (null) row")
@@ -290,6 +345,66 @@ class ContextRowMenuTest {
         assertEquals(listOf("header", "---"), describe(menu))
         assertEquals(" <font size=\"+1\"></font>: <b></b>", menu.first().rawLabel)
         assertEquals(emptyList(), callLog, "no flag, label or global default is consulted without an item config")
+    }
+
+    @Test
+    fun callbackNotEditableNeverReadsTheCreateFlags() {
+        loggedList(editable = false).productionCallbackMenu()
+        assertEquals(listOf("labelId(null)", "showDefaultContextRowMenu", "editable"), callLog)
+    }
+
+    // ── The row-menu Create flag through the production callback (P4.3, CONTRACT I-7) ─────────────
+
+    @Test
+    fun rowMenuCreateFollowsTheToolbarFlagByDefault() {
+        val list = loggedList(toolbarCreate = false)
+        val menu = list.productionCallbackMenu()
+        assertEquals(listOf("header", "---", "tx:Detail of", "tx:Update", "tx:Delete"), describe(menu))
+        assertEquals(
+            listOf(CrudTask.Read, CrudTask.Update, CrudTask.Delete).map { iconCrud(it) },
+            menu.drop(2).map { it.icon },
+        )
+        assertEquals(
+            listOf(
+                "labelId(null)", "showDefaultContextRowMenu", "editable",
+                "showCreateInContextRowMenu", "showCreateInToolbar",
+            ),
+            callLog,
+        )
+        callLog.clear()
+        assertFalse(list.showCreateInContextRowMenu, "the default getter returns the toolbar flag")
+    }
+
+    /** Mutation target (P4.3): a generator that reads `showCreateInToolbar` instead fails here. */
+    @Test
+    fun rowMenuCreateCanBeKeptWithoutTheToolbarButton() {
+        val list = loggedList(toolbarCreate = false, rowMenuCreate = true)
+        assertEquals(
+            listOf("header", "---", "tx:Detail of", "tx:Create", "tx:Update", "tx:Delete"),
+            describe(list.productionCallbackMenu()),
+        )
+        assertEquals(
+            listOf("labelId(null)", "showDefaultContextRowMenu", "editable", "showCreateInContextRowMenu"),
+            callLog,
+            "an overriding view is read once, and the toolbar flag is not consulted",
+        )
+    }
+
+    /** Mutation target (P4.3): a generator that reads `showCreateInToolbar` instead fails here. */
+    @Test
+    fun rowMenuCreateCanBeHiddenWithTheToolbarButtonOn() {
+        assertEquals(
+            listOf("header", "---", "tx:Detail of", "tx:Update", "tx:Delete"),
+            describe(loggedList(toolbarCreate = true, rowMenuCreate = false).productionCallbackMenu()),
+        )
+    }
+
+    @Test
+    fun rowMenuCreateFlagDoesNotRestoreCreateWhenNotEditable() {
+        assertEquals(
+            listOf("header", "---", "tx:Detail of"),
+            describe(loggedList(editable = false, rowMenuCreate = true).productionCallbackMenu()),
+        )
     }
 
     // ── The same body for a resolved row ─────────────────────────────────────────────────────────
@@ -322,6 +437,7 @@ class ContextRowMenuTest {
         assertEquals(
             listOf(
                 "labelId(r1)", "showDefaultContextRowMenu", "editable",
+                "showCreateInContextRowMenu", "showCreateInToolbar",
                 "contextMenuDefault(item=r1)", "contextMenuItems(r1)", "contextRowMenu(r1)",
             ),
             callLog,
@@ -356,7 +472,10 @@ class ContextRowMenuTest {
             describe(list.contextRowMenuFor(row)),
         )
         assertEquals(
-            listOf("labelId(r1)", "showDefaultContextRowMenu", "editable", "contextRowMenu(r1)"),
+            listOf(
+                "labelId(r1)", "showDefaultContextRowMenu", "editable",
+                "showCreateInContextRowMenu", "showCreateInToolbar", "contextRowMenu(r1)",
+            ),
             callLog,
         )
     }
@@ -372,6 +491,23 @@ class ContextRowMenuTest {
         assertEquals(
             listOf("header", "---", "tx:Detail of"),
             describe(loggedList(editable = false).contextRowMenuFor(row)),
+        )
+    }
+
+    @Test
+    fun rowMenuWithoutCreateKeepsEveryOtherGroupAndTheClickedRow() {
+        val config = RowMenuConfigItem(itemEntries = listOf(entry("C1")))
+        loggedGlobalDefault("G1")
+        val list = loggedList(config, toolbarCreate = false).apply { rowEntries = listOf(entry("V1")) }
+        val menu = list.contextRowMenuFor(row)
+        assertEquals(
+            listOf("header", "---", "tx:Detail of", "tx:Update", "tx:Delete", "---", "G1", "C1", "V1"),
+            describe(menu),
+        )
+        menu.slice(2..4).forEach { it.action(Event("click"), null) }
+        assertEquals<List<Pair<CrudTask, RowMenuDoc?>>>(
+            listOf(CrudTask.Read, CrudTask.Update, CrudTask.Delete).map { it to row },
+            list.navigations,
         )
     }
 
