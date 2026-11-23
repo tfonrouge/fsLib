@@ -24,6 +24,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 // ── Fixture ──────────────────────────────────────────────────────────────────────────────────────
@@ -137,8 +138,11 @@ private class RowMenuFixtureList(
 /** A menu entry recognisable by its label. */
 private fun entry(label: String) = menuItem(label = label)
 
+/** A new separator entry (a distinct object each call, so identity can be checked). */
+private fun sep() = menuItem(separator = true)
+
 /** Reads a menu as labels: `header`, `---` for a separator, otherwise the raw label. */
-private fun describe(menu: Array<TabulatorMenuItem>): List<String> = menu.map {
+private fun describe(menu: List<TabulatorMenuItem>): List<String> = menu.map {
     when {
         it.header -> "header"
         it.separator == true -> "---"
@@ -146,12 +150,22 @@ private fun describe(menu: Array<TabulatorMenuItem>): List<String> = menu.map {
     }
 }
 
+/** [describe] for the array a menu generator returns. */
+private fun describe(menu: Array<TabulatorMenuItem>): List<String> = describe(menu.asList())
+
+/** Asserts [actual] holds exactly the objects of [expected], in order (identity, not equality). */
+private fun assertIdentical(expected: List<TabulatorMenuItem>, actual: List<TabulatorMenuItem>) {
+    assertEquals(describe(expected), describe(actual))
+    expected.zip(actual).forEachIndexed { i, (e, a) -> assertSame(e, a, "entry $i is the same object") }
+}
+
 /**
  * The ViewList context row menu (blueprints/view-consumer-gaps, T-6): the default-CRUD decision as a
  * pure function, and the production generator through the callback Tabulator uses — its entries,
  * groups, order, captured row, labels and the order and number of callback invocations.
  * P4.2 characterized the menu before any behaviour change; P4.3 adds the row-menu Create flag
- * (CONTRACT I-7), whose read now follows `editable` in the call logs.
+ * (CONTRACT I-7), whose read now follows `editable` in the call logs; P4.4 normalizes the top-level
+ * separators (CONTRACT I-8) as a pure function applied by the generator.
  */
 class ContextRowMenuTest {
 
@@ -259,6 +273,85 @@ class ContextRowMenuTest {
         )
     }
 
+    // ── Separator normalization as a pure function (P4.4, CONTRACT I-8) ─────────────────────────
+
+    @Test
+    fun normalizeEmptyMenuStaysEmpty() {
+        assertEquals(emptyList(), normalizeRowMenuSeparators(emptyList()))
+    }
+
+    @Test
+    fun normalizeSeparatorsOnlyLeavesNothing() {
+        assertEquals(emptyList(), normalizeRowMenuSeparators(listOf(sep())))
+        assertEquals(emptyList(), normalizeRowMenuSeparators(listOf(sep(), sep(), sep())))
+    }
+
+    @Test
+    fun normalizeKeepsACompliantMenuAsIs() {
+        val compliant = listOf(menuItem(label = "H", header = true), sep(), entry("A"), sep(), entry("B"))
+        assertIdentical(compliant, normalizeRowMenuSeparators(compliant))
+    }
+
+    /** P4.4 control A target: a normalization that stops collapsing runs fails here on content. */
+    @Test
+    fun normalizeCollapsesEveryRunOfSeparators() {
+        val a = entry("A")
+        val b = entry("B")
+        val c = entry("C")
+        val firstOfRun1 = sep()
+        val firstOfRun2 = sep()
+        val normalized = normalizeRowMenuSeparators(listOf(a, firstOfRun1, sep(), b, firstOfRun2, sep(), sep(), c))
+        assertEquals(listOf("A", "---", "B", "---", "C"), describe(normalized))
+        assertIdentical(listOf(a, firstOfRun1, b, firstOfRun2, c), normalized)
+    }
+
+    @Test
+    fun normalizeDropsTrailingSeparators() {
+        val a = entry("A")
+        val b = entry("B")
+        val between = sep()
+        assertIdentical(listOf(a), normalizeRowMenuSeparators(listOf(a, sep())))
+        assertIdentical(listOf(a), normalizeRowMenuSeparators(listOf(a, sep(), sep(), sep())))
+        assertIdentical(listOf(a, between, b), normalizeRowMenuSeparators(listOf(a, between, b, sep(), sep())))
+    }
+
+    @Test
+    fun normalizeRemovesOnlyRepeatedOrTrailingSeparators() {
+        val leading = sep()
+        val a = entry("A")
+        assertIdentical(listOf(leading, a), normalizeRowMenuSeparators(listOf(leading, a)))
+    }
+
+    @Test
+    fun normalizeKeepsEntriesUntouchedAndLeavesSubmenusAlone() {
+        val action: (Event, dynamic) -> Unit = { _, _ -> }
+        val submenu = arrayOf(entry("S1"), sep(), sep(), entry("S2"), sep())
+        val header = menuItem(label = "H", header = true)
+        val parent = menuItem(label = "P", icon = "fas fa-folder", menu = submenu)
+        val leaf = menuItem(label = "X", icon = "fas fa-x", disabled = true, action = action)
+        val normalized = normalizeRowMenuSeparators(listOf(header, sep(), parent, sep(), sep(), leaf))
+        assertEquals(listOf("header", "---", "P", "---", "X"), describe(normalized))
+        assertSame(header, normalized[0])
+        assertTrue(header.header)
+        assertEquals("H", header.rawLabel)
+        assertSame(parent, normalized[2])
+        assertSame(submenu, parent.menu, "the submenu array is the same object")
+        assertEquals(listOf("S1", "---", "---", "S2", "---"), describe(submenu), "submenus are not normalized")
+        assertSame(leaf, normalized[4])
+        assertEquals("fas fa-x", leaf.icon)
+        assertEquals(true, leaf.disabled)
+        assertEquals("X", leaf.rawLabel)
+        assertSame(action, leaf.action)
+    }
+
+    @Test
+    fun normalizeDoesNotModifyItsInput() {
+        val input = mutableListOf(entry("A"), sep(), sep(), entry("B"), sep())
+        val before = input.toList()
+        normalizeRowMenuSeparators(input)
+        assertIdentical(before, input)
+    }
+
     // ── The production callback (no table, so the resolved row is null) ─────────────────────────
 
     @Test
@@ -295,7 +388,7 @@ class ContextRowMenuTest {
     @Test
     fun callbackWithoutDefaultMenuOffersNoCrudEntryAndNeverAsksEditable() {
         val menu = loggedList(showDefault = false).productionCallbackMenu()
-        assertEquals(listOf("header", "---"), describe(menu))
+        assertEquals(listOf("header"), describe(menu), "a menu with only the header ends in no separator")
         assertEquals(listOf("labelId(null)", "showDefaultContextRowMenu"), callLog)
     }
 
@@ -342,7 +435,7 @@ class ContextRowMenuTest {
     fun callbackWithoutItemConfigHasOnlyTheEmptyHeader() {
         ConfigViewItem.contextMenuDefault = { callLog += "contextMenuDefault"; listOf(entry("G1")) }
         val menu = loggedList(config = null).productionCallbackMenu()
-        assertEquals(listOf("header", "---"), describe(menu))
+        assertEquals(listOf("header"), describe(menu), "a menu with only the header ends in no separator")
         assertEquals(" <font size=\"+1\"></font>: <b></b>", menu.first().rawLabel)
         assertEquals(emptyList(), callLog, "no flag, label or global default is consulted without an item config")
     }
@@ -351,6 +444,16 @@ class ContextRowMenuTest {
     fun callbackNotEditableNeverReadsTheCreateFlags() {
         loggedList(editable = false).productionCallbackMenu()
         assertEquals(listOf("labelId(null)", "showDefaultContextRowMenu", "editable"), callLog)
+    }
+
+    /** P4.4 control B target, through the production callback: separators the global default adds. */
+    @Test
+    fun callbackNormalizesTheGlobalDefaultSeparators() {
+        val g1 = entry("G1")
+        ConfigViewItem.contextMenuDefault = { listOf(sep(), g1, sep(), sep()) }
+        val menu = loggedList(showDefault = false).productionCallbackMenu()
+        assertEquals(listOf("header", "---", "G1"), describe(menu))
+        assertSame(g1, menu[2])
     }
 
     // ── The row-menu Create flag through the production callback (P4.3, CONTRACT I-7) ─────────────
@@ -512,16 +615,80 @@ class ContextRowMenuTest {
     }
 
     /**
-     * **Current defect, pinned on purpose (LEDGER L-018):** with the default entries off, the
-     * separator before the global entries follows the header's separator. P4.4 changes this
-     * expectation; until then it documents what consumers see today.
+     * P4.2 pinned the L-018 defect here (`header, ---, ---, G1`); with the normalization applied by the
+     * generator one separator remains before the global entries. P4.4 control B target.
      */
     @Test
-    fun currentlyTwoSeparatorsFollowTheHeaderWhenDefaultsAreOff() {
+    fun rowMenuWithDefaultsOffKeepsOneSeparatorBeforeTheGlobalEntries() {
         loggedGlobalDefault("G1")
         assertEquals(
-            listOf("header", "---", "---", "G1"),
+            listOf("header", "---", "G1"),
             describe(loggedList(showDefault = false).contextRowMenuFor(row)),
         )
+    }
+
+    /**
+     * P4.4 control B target: separators contributed by every group collapse, the groups keep their
+     * order, the consumers' entries are the same objects, the consumers' lists are not modified, and the
+     * default actions keep the clicked row; the callbacks are consulted in the P4.2/P4.3 order.
+     */
+    @Test
+    fun rowMenuCollapsesConsumerSeparatorsAndKeepsGroupsEntriesAndRow() {
+        val g1 = entry("G1")
+        val c1 = entry("C1")
+        val v1 = entry("V1")
+        val configEntries = mutableListOf(sep(), c1, sep())
+        val viewEntries = mutableListOf(sep(), sep(), v1, sep())
+        val configBefore = configEntries.toList()
+        val viewBefore = viewEntries.toList()
+        ConfigViewItem.contextMenuDefault = {
+            callLog += "contextMenuDefault(item=${(item as RowMenuDoc?)?._id})"
+            listOf(g1)
+        }
+        val list = loggedList(RowMenuConfigItem(itemEntries = configEntries)).apply { rowEntries = viewEntries }
+        val menu = list.contextRowMenuFor(row)
+        assertEquals(
+            listOf(
+                "header", "---",
+                "tx:Detail of", "tx:Create", "tx:Update", "tx:Delete",
+                "---", "G1",
+                "---", "C1",
+                "---", "V1",
+            ),
+            describe(menu),
+        )
+        assertSame(g1, menu[7])
+        assertSame(configBefore[0], menu[8], "the config's own leading separator is the one kept")
+        assertSame(c1, menu[9])
+        assertSame(configBefore[2], menu[10], "a run keeps its first separator")
+        assertSame(v1, menu[11])
+        assertIdentical(configBefore, configEntries)
+        assertIdentical(viewBefore, viewEntries)
+        menu.slice(2..5).forEach { it.action(Event("click"), null) }
+        assertEquals<List<Pair<CrudTask, RowMenuDoc?>>>(
+            listOf(CrudTask.Read, CrudTask.Create, CrudTask.Update, CrudTask.Delete).map { it to row },
+            list.navigations,
+        )
+        assertEquals(
+            listOf(
+                "labelId(r1)", "showDefaultContextRowMenu", "editable",
+                "showCreateInContextRowMenu", "showCreateInToolbar",
+                "contextMenuDefault(item=r1)", "contextMenuItems(r1)", "contextRowMenu(r1)",
+            ),
+            callLog,
+        )
+    }
+
+    /** Without a global default and with the defaults off, consumer separators merge into the header's. */
+    @Test
+    fun rowMenuWithoutGlobalDefaultMergesConsumerSeparatorsIntoTheHeaderOne() {
+        val c1 = entry("C1")
+        val v1 = entry("V1")
+        val list = loggedList(RowMenuConfigItem(itemEntries = listOf(sep(), c1)), showDefault = false)
+            .apply { rowEntries = listOf(v1, sep()) }
+        val menu = list.contextRowMenuFor(row)
+        assertEquals(listOf("header", "---", "C1", "V1"), describe(menu))
+        assertSame(c1, menu[2])
+        assertSame(v1, menu[3])
     }
 }

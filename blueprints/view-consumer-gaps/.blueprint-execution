@@ -1,3 +1,3 @@
 ## Current Execution
-- Active: OC-06 · P4.1 governance, P4.2 characterization and P4.3 `showCreateInContextRowMenu` committed on `feat/viewlist-context-row-create`; next P4.4 (row-menu separator normalization, I-8), each commit Owner-reviewed
+- Active: OC-06 · P4.1–P4.4 committed on `feat/viewlist-context-row-create` (governance, characterization, `showCreateInContextRowMenu`, separator normalization); next P4.5 (CHANGELOG/MIGRATION for 6.5.0, branch census, Owner/ROAR review) — T-6 not closed until then
 - Parallel: OC-01 · awaiting mppArel adoption of `fsTomSelectRemote` on a released fsLib that contains it (available since 6.3.0) — 1-RPC measure

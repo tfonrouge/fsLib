@@ -557,7 +557,9 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
      * [ConfigViewItem.contextMenuDefault] entries (after assigning [ConfigViewItem.item], preceded by a
      * separator when they are not empty), then the item config's `contextMenuItems` (only for a
      * non-null [item]), then [contextRowMenu] (only for a non-null [item], with or without a
-     * [configViewItem]). Each default CRUD action runs [goActionUrl] on this [item].
+     * [configViewItem]). Each default CRUD action runs [goActionUrl] on this [item]. Once every group is
+     * in, the top level goes through [normalizeRowMenuSeparators] (CONTRACT I-8): no two consecutive
+     * separators, none at the end, none added — including those the extensions contribute.
      *
      * This is the production body of [contextRowMenuGenerator] after the hovered row is resolved; it is
      * `internal` so tests can drive it with a non-null row, because building the [TabulatorViewList]
@@ -602,7 +604,7 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
                 menu += it
             }
         }
-        return menu.toTypedArray()
+        return normalizeRowMenuSeparators(menu).toTypedArray()
     }
 
     /**
@@ -892,4 +894,27 @@ internal fun defaultCrudRowTasks(
     !editable() -> listOf(CrudTask.Read)
     showCreate() -> listOf(CrudTask.Read, CrudTask.Create, CrudTask.Update, CrudTask.Delete)
     else -> listOf(CrudTask.Read, CrudTask.Update, CrudTask.Delete)
+}
+
+/**
+ * Normalizes the separators of the top level of the ViewList context row menu
+ * (blueprints/view-consumer-gaps, T-6, CONTRACT I-8): each run of consecutive separators collapses
+ * to its first separator, and separators left at the end are dropped.
+ *
+ * Only those two kinds of separator are removed and none is ever added, so where two groups were
+ * separated exactly one separator remains between them. Every kept entry is the same object, in the
+ * same order and unmodified — labels, icons, actions, headers and submenus included; submenus are not
+ * normalized. [menu] itself is not modified: a new list is returned.
+ *
+ * @param menu The assembled top-level entries, in display order.
+ * @return The entries to display.
+ */
+internal fun normalizeRowMenuSeparators(menu: List<TabulatorMenuItem>): List<TabulatorMenuItem> {
+    val normalized = ArrayList<TabulatorMenuItem>(menu.size)
+    for (entry in menu) {
+        if (entry.separator == true && normalized.lastOrNull()?.separator == true) continue
+        normalized += entry
+    }
+    while (normalized.lastOrNull()?.separator == true) normalized.removeAt(normalized.lastIndex)
+    return normalized
 }

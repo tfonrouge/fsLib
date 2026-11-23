@@ -47,11 +47,13 @@ API_SURFACE duty per LEDGER L-002). KDoc on the symbols references this contract
   == false` still suppresses every default CRUD entry. The toolbar reads its flag once, when it is
   built; the row menu reads its own each time it opens and passes the clicked row (the toolbar uses
   the current selection) — so a state-dependent getter can make the two diverge visually (L-017).
-- **I-8 (row-menu separators; target — T-6).** The generated ViewList context row menu never
-  contains two consecutive separators and never ends in one; no non-separator entry is reordered or
-  removed; where two groups were separated, exactly one separator remains between them. This
-  applies to redundant separators contributed by consumer extensions too (two contiguous
-  separators are no extra group in Tabulator); no separator is ever added. Header menus and every other menu generator are outside this invariant (L-018).
+- **I-8 (row-menu separators; T-6 — implemented, unreleased (planned for 6.5.0)).** The top level of
+  the generated ViewList context row menu never contains two consecutive separators and never ends in
+  one; no non-separator entry is reordered or removed, and every kept entry is the same object,
+  unmodified; where two groups were separated, exactly one separator remains between them. This
+  applies to redundant separators contributed by consumer extensions too (two contiguous separators
+  are no extra group in Tabulator), without modifying the lists they return; no separator is ever
+  added. Submenus, header menus and every other menu generator are outside this invariant (L-018).
 
 ## New public API (additive — SemVer minor)
 
