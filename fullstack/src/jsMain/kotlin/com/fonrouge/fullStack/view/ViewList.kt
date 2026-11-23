@@ -527,11 +527,12 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
     open fun contextRowMenu(item: T): List<TabulatorMenuItem>? = null
 
     /**
-     * Generates a context menu for a specific row in a Tabulator table, based on the provided configuration
-     * and the current state.
+     * Generates the context menu for the row under the pointer — the `rowContextMenu` callback that
+     * [defaultTabulatorOptions] hands Tabulator.
      *
-     * The menu includes options such as viewing details, creating, updating, and deleting records,
-     * as well as custom menu items defined in the configuration or by specific logic.
+     * Resolves the hovered row ([overItem]) into a [T] through the table's serializer and delegates
+     * the menu itself to [contextRowMenuFor]. A row that cannot be decoded is reported with a toast and
+     * the menu is built for a `null` item.
      *
      * @return An array of [TabulatorMenuItem] objects representing the context menu for the row.
      */
@@ -545,6 +546,27 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
                 null
             }
         }
+        return contextRowMenuFor(item)
+    }
+
+    /**
+     * Builds the context row menu for [item] (blueprints/view-consumer-gaps, T-6).
+     *
+     * Order: a header with the item label, a separator, then — only when a [configViewItem] exists —
+     * the default CRUD entries chosen by [defaultCrudRowTasks], then the global
+     * [ConfigViewItem.contextMenuDefault] entries (after assigning [ConfigViewItem.item], preceded by a
+     * separator when they are not empty), then the item config's `contextMenuItems` (only for a
+     * non-null [item]), then [contextRowMenu] (only for a non-null [item], with or without a
+     * [configViewItem]). Each default CRUD action runs [goActionUrl] on this [item].
+     *
+     * This is the production body of [contextRowMenuGenerator] after the hovered row is resolved; it is
+     * `internal` so tests can drive it with a non-null row, because building the [TabulatorViewList]
+     * that resolves real rows needs a Kilua RPC service manager no unit test can provide.
+     *
+     * @param item The clicked row, or `null` when none could be resolved.
+     * @return The menu entries, in display order.
+     */
+    internal fun contextRowMenuFor(item: T?): Array<TabulatorMenuItem> {
         val configViewItem = configViewItem()
         val menu = mutableListOf<TabulatorMenuItem>()
         val labelId = configViewItem?.commonContainer?.labelId?.invoke(item) ?: ""
@@ -555,37 +577,11 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
         )
         menu += menuItem(separator = true)
         configViewItem?.let {
-            if (showDefaultContextRowMenu()) {
-                menu += menuItem(
-                    label = gettext("Detail of"),
-                    icon = iconCrud(CrudTask.Read),
-                    action = { _, _ ->
-                        goActionUrl(CrudTask.Read, item)
-                    }
-                )
-                if (editable()) {
-                    menu += menuItem(
-                        label = gettext("Create"),
-                        icon = iconCrud(CrudTask.Create),
-                        action = { _, _ ->
-                            goActionUrl(CrudTask.Create, item)
-                        }
-                    )
-                    menu += menuItem(
-                        label = gettext("Update"),
-                        icon = iconCrud(CrudTask.Update),
-                        action = { _, _ ->
-                            goActionUrl(CrudTask.Update, item)
-                        }
-                    )
-                    menu += menuItem(
-                        label = gettext("Delete"),
-                        icon = iconCrud(CrudTask.Delete),
-                        action = { _, _ ->
-                            goActionUrl(CrudTask.Delete, item)
-                        }
-                    )
-                }
+            defaultCrudRowTasks(
+                showDefaultContextRowMenu = { showDefaultContextRowMenu() },
+                editable = { editable() },
+            ).forEach { crudTask ->
+                menu += crudRowMenuItem(crudTask, item)
             }
             configViewItem.item = item
             ConfigViewItem.contextMenuDefault?.invoke(configViewItem)?.let {
@@ -607,6 +603,29 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
         }
         return menu.toTypedArray()
     }
+
+    /**
+     * One default CRUD entry of the context row menu: its translated label, its CRUD icon, and an
+     * action that runs [goActionUrl] for [crudTask] on the clicked row [item].
+     *
+     * The labels stay literal `gettext` calls so the translation catalog keeps extracting them.
+     *
+     * @param crudTask The CRUD task the entry triggers.
+     * @param item The clicked row the action is bound to (`null` when none could be resolved).
+     * @return The menu entry.
+     */
+    private fun crudRowMenuItem(crudTask: CrudTask, item: T?): TabulatorMenuItem = menuItem(
+        label = when (crudTask) {
+            CrudTask.Read -> gettext("Detail of")
+            CrudTask.Create -> gettext("Create")
+            CrudTask.Update -> gettext("Update")
+            CrudTask.Delete -> gettext("Delete")
+        },
+        icon = iconCrud(crudTask),
+        action = { _, _ ->
+            goActionUrl(crudTask, item)
+        }
+    )
 
     /**
      * forces an update for the tabulator data
@@ -829,3 +848,25 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
  */
 internal fun persistenceIdOf(base: String?, variant: String?): String? =
     base?.let { b -> variant?.takeIf { it.isNotBlank() }?.let { "$b-$it" } ?: b }
+
+/**
+ * Decides which default CRUD entries the ViewList context row menu offers, in menu order
+ * (blueprints/view-consumer-gaps, T-6): none when [showDefaultContextRowMenu] is `false`;
+ * otherwise Detail ([CrudTask.Read]), followed by Create, Update and Delete when [editable] is `true`.
+ *
+ * The flags are passed as functions to keep the generator's lazy evaluation:
+ * [showDefaultContextRowMenu] is called exactly once and [editable] only when the former returned
+ * `true`.
+ *
+ * @param showDefaultContextRowMenu Whether the default CRUD entries are shown at all.
+ * @param editable Whether the list allows Create, Update and Delete.
+ * @return The CRUD tasks of the default entries, in display order.
+ */
+internal fun defaultCrudRowTasks(
+    showDefaultContextRowMenu: () -> Boolean,
+    editable: () -> Boolean,
+): List<CrudTask> = when {
+    !showDefaultContextRowMenu() -> emptyList()
+    editable() -> listOf(CrudTask.Read, CrudTask.Create, CrudTask.Update, CrudTask.Delete)
+    else -> listOf(CrudTask.Read)
+}
