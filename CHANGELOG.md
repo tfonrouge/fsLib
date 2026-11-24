@@ -4,9 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-Planned as **6.5.0** — not released; the version in `gradle/libs.versions.toml` is unchanged and the
-release awaits authorization. T-6 of the consumer-measured view-layer gaps (design artifacts:
-`blueprints/view-consumer-gaps/`, CONTRACT I-7/I-8, LEDGER L-016..L-019): the default ViewList context
+## [6.5.0] - 2026-11-23
+
+T-6 of the consumer-measured view-layer gaps (design artifacts:
+`blueprints/view-consumer-gaps/`, CONTRACT I-7/I-8, LEDGER L-016..L-020): the default ViewList context
 row menu stops offering «Create» where the list hid it from the toolbar, and stops showing redundant
 separators — the two reasons consumers rebuilt that menu by hand.
 
@@ -50,7 +51,7 @@ separators — the two reasons consumers rebuilt that menu by hand.
   separator collapse disabled, and the generator returning the menu without normalization. The removal
   of trailing separators is covered by content tests, without a mutation control of its own.
 
-### Migration Guide (6.4.0 → 6.5.0, planned)
+### Migration Guide (6.4.0 → 6.5.0)
 A list with `showCreateInToolbar = false` no longer offers Create on right-click; override
 `showCreateInContextRowMenu = true` to keep it. Workarounds that turned the default menu off only to
 rebuild Detail/Update/Delete without Create can go — the switch and the rebuilt entries only. See

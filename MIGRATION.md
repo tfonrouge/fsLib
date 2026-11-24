@@ -19,7 +19,7 @@ list and the rationale.
 | 6.2.3 → 6.2.4 | Nothing — internal fix: `FsTabPanel.dispose()` no longer cascades full-root re-renders. Behaviour unchanged, teardown cost only. |
 | [6.2.4 → 6.3.0](#624--630--help-ui-strings-become-i18n-keys) | **Add 15 keys to your i18n catalog** or the help UI and the cancel dialog show English at runtime (compiles fine either way). Recommended: swap `tomSelectRemote` → `fsTomSelectRemote` to stop the 7–9× RPC storm per form open. |
 | [6.3.0 → 6.4.0](#630--640--kvision-970-kotlin-2420) | **Build with Kotlin 2.4.20.** Keep deploying on Java 25. Column titles now always come from code (stored layouts stay valid; a context-dependent list wants a `persistenceVariant`). `fsTabPanel` is deprecated (warning only) — swap back to KVision's `tabPanel` when convenient. |
-| [6.4.0 → 6.5.0 (planned, unreleased)](#migrate-6-4-0-to-6-5-0) | Compiles unchanged. **A list with `showCreateInToolbar = false` stops offering Create on right-click** — override `showCreateInContextRowMenu = true` where that Create is wanted. Redundant row-menu separators disappear. Workarounds that rebuilt the row menu without Create can be removed. |
+| [6.4.0 → 6.5.0](#migrate-6-4-0-to-6-5-0) | Compiles unchanged. **A list with `showCreateInToolbar = false` stops offering Create on right-click** — override `showCreateInContextRowMenu = true` where that Create is wanted. Redundant row-menu separators disappear. Workarounds that rebuilt the row menu without Create can be removed. |
 
 Skipping releases? Apply **every** section between your version and your target — a migration is not
 optional just because you skipped the release that introduced it.
@@ -28,10 +28,7 @@ optional just because you skipped the release that introduced it.
 
 <a id="migrate-6-4-0-to-6-5-0"></a>
 
-## 6.4.0 → 6.5.0 (planned, unreleased) — row-menu Create and separators
-
-> **Not released yet.** This section describes the changes on the way to 6.5.0; the version number and
-> the release are pending authorization.
+## 6.4.0 → 6.5.0 — row-menu Create and separators
 
 **Symptom if you skip this.** Everything compiles. At runtime, a list that hides Create from its toolbar
 (`showCreateInToolbar = false`) stops offering it in the row context menu as well, and right-click menus

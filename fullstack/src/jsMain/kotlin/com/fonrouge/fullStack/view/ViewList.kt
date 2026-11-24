@@ -811,13 +811,14 @@ abstract class ViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
     /**
      * Set to false to suppress the "Create" button from the toolbar (e.g. when the view
      * provides its own creation entry point such as a wizard).
-     * Update and Delete buttons are unaffected. The Create entry of the default context row menu
-     * follows [showCreateInContextRowMenu], which returns this value unless a view overrides it.
+     * Update and Delete buttons are unaffected. Since 6.5.0 the Create entry of the default context row
+     * menu follows [showCreateInContextRowMenu], which returns this value unless a view overrides it.
      */
     open val showCreateInToolbar: Boolean = true
 
     /**
-     * Whether the default context row menu offers «Create» (blueprints/view-consumer-gaps, CONTRACT I-7).
+     * Whether the default context row menu offers «Create» (since 6.5.0; blueprints/view-consumer-gaps,
+     * CONTRACT I-7).
      *
      * By default it returns [showCreateInToolbar], so the toolbar and the row menu stay aligned unless a
      * view sets them apart — e.g. toolbar off and row menu on, when creating depends on the clicked row.
