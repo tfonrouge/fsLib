@@ -19,9 +19,102 @@ list and the rationale.
 | 6.2.3 → 6.2.4 | Nothing — internal fix: `FsTabPanel.dispose()` no longer cascades full-root re-renders. Behaviour unchanged, teardown cost only. |
 | [6.2.4 → 6.3.0](#624--630--help-ui-strings-become-i18n-keys) | **Add 15 keys to your i18n catalog** or the help UI and the cancel dialog show English at runtime (compiles fine either way). Recommended: swap `tomSelectRemote` → `fsTomSelectRemote` to stop the 7–9× RPC storm per form open. |
 | [6.3.0 → 6.4.0](#630--640--kvision-970-kotlin-2420) | **Build with Kotlin 2.4.20.** Keep deploying on Java 25. Column titles now always come from code (stored layouts stay valid; a context-dependent list wants a `persistenceVariant`). `fsTabPanel` is deprecated (warning only) — swap back to KVision's `tabPanel` when convenient. |
+| [6.4.0 → 6.5.0 (planned, unreleased)](#migrate-6-4-0-to-6-5-0) | Compiles unchanged. **A list with `showCreateInToolbar = false` stops offering Create on right-click** — override `showCreateInContextRowMenu = true` where that Create is wanted. Redundant row-menu separators disappear. Workarounds that rebuilt the row menu without Create can be removed. |
 
 Skipping releases? Apply **every** section between your version and your target — a migration is not
 optional just because you skipped the release that introduced it.
+
+---
+
+<a id="migrate-6-4-0-to-6-5-0"></a>
+
+## 6.4.0 → 6.5.0 (planned, unreleased) — row-menu Create and separators
+
+> **Not released yet.** This section describes the changes on the way to 6.5.0; the version number and
+> the release are pending authorization.
+
+**Symptom if you skip this.** Everything compiles. At runtime, a list that hides Create from its toolbar
+(`showCreateInToolbar = false`) stops offering it in the row context menu as well, and right-click menus
+lose duplicated or trailing separators.
+
+**What changes in the default context row menu** (the menu `ViewList` builds on right-click; nothing
+else):
+
+- **Create follows `showCreateInContextRowMenu`**, a new `open val` that returns `showCreateInToolbar`
+  unless the view overrides it. Until 6.4.0 the row menu offered Create on every editable list,
+  regardless of `showCreateInToolbar`.
+- **Precedence is unchanged.** `showDefaultContextRowMenu() == false` still removes every default CRUD
+  entry; `editable() == false` still leaves only Detail. The new property cannot bring Create back in
+  either case.
+- **Detail, Update and Delete keep their relative order** with or without Create.
+- **Separators are normalized on the top level only.** After every group is in (header, default CRUD
+  entries, `ConfigViewItem.contextMenuDefault`, your item config's `contextMenuItems`, your view's
+  `contextRowMenu`), each run of consecutive separators keeps only its first one and trailing
+  separators are dropped — including separators your extensions contribute. No separator is ever
+  added. Every other entry stays: the same object, in the same order, with its label, icon, action,
+  header flag and submenu. The lists your extensions return are not modified. Submenus, header menus
+  and every other menu generator are untouched.
+
+**What to change.**
+
+1. **Find the lists with `showCreateInToolbar = false`** that are editable and keep the default row
+   menu. Decide per list whether right-click Create was intended. If it was — typically because
+   creating depends on the clicked row — keep it:
+
+   ```kotlin
+   class ViewListThing : ViewList<…>(…) {
+       override val showCreateInToolbar: Boolean = false       // toolbar: no generic create
+       override val showCreateInContextRowMenu: Boolean = true  // row menu: keep Create
+   }
+   ```
+
+   The row menu reads this property each time it opens; the toolbar reads `showCreateInToolbar` once,
+   when it is built. A getter that depends on state can therefore make the two surfaces differ.
+2. **Remove workarounds that rebuilt the row menu without Create** — and only them:
+   - remove the calls to the helper that rebuilt Detail/Update/Delete, and the
+     `showDefaultContextRowMenu = { false }` switch **when it exists only to replace the default
+     menu**; a list that turns the default menu off for other reasons keeps it;
+   - keep every custom entry of your `contextRowMenu` / `contextMenuItems` that is unrelated to the
+     workaround;
+   - keep `showCreateInToolbar = false` — it states the real intent, and it is now also what
+     `showCreateInContextRowMenu` returns by default;
+   - delete the helper and its imports **only once nothing uses them anymore**, and delete a file only
+     when it declares nothing else.
+
+   Once a list is back on the default menu, Detail/Update/Delete return to their standard place:
+   **above** the `contextMenuDefault`, `contextMenuItems` and `contextRowMenu` entries.
+3. **Check your separators.** fsLib appends `contextMenuItems` and `contextRowMenu` without a separator
+   of its own. If you want your entries visually apart, keep a leading `menuItem(separator = true)` in
+   them; it stays unless the previous entry is already a separator. Nothing to do if you relied on a
+   trailing or doubled separator — it simply disappears.
+
+**Historical examples — the downstream inspection recorded in LEDGER L-019.** Steps 1–3 above are the
+migration; the cases below only illustrate them. They describe what the inspection of 2026-11-22 found
+(file-level detail in `blueprints/view-consumer-gaps/LEDGER.md`, L-019), not the current state of those
+applications: when one of them adopts 6.5.0, re-check its code against steps 1–3 before removing
+anything.
+
+- **mppErsaPack, branch `fix/pedidocliente-menu-fila-sin-crear`** — in `ViewListPedidoClienteHead`
+  remove the `menuDeFilaSinCrear` import, the `init { showDefaultContextRowMenu = { false } }` block with
+  the KDoc describing the workaround, and the `menuDeFilaSinCrear(item) +` prefix of `contextRowMenu`;
+  the list's own actions stay. `view/lib/menuDeFilaSinCrear.kt` declares only the helper, so it goes
+  once that last use is gone.
+- **mppErsaPack, branch `fix/accesos-importaciones-a18-a19`** — **keep `AccesosDeImportaciones.kt`**:
+  besides the helper it declares `FORMATO_FECHA_HORA_24`, used by `ViewItemImportProject`,
+  `ViewItemImportProjectItemNegociacion` and `ViewItemImportProjectItemTransito`. Remove only
+  `menuDeFilaSinCrear`, its KDoc and the imports nothing else uses. In
+  `ViewListImportProjectItemBaseData`, `…Negociacion`, `…Prospect` and `…Transito` remove the helper
+  import, the `init` switch and the `contextRowMenu` override that only returns the helper; in
+  `ViewListImportProjectItem` remove the import, the `init` switch with its KDoc and the
+  `+ menuDeFilaSinCrear(item, separadorAntes = true)` tail — the Tránsitos entry stays.
+- **The other measured lists with `showCreateInToolbar = false`** that are editable and keep the
+  default menu — seven in mppArel (`view/ejecucionTallerMoldes/`) — stop offering Create on right-click.
+  None of them declares an intent to keep a contextual Create (their KDoc says «Sin alta genérica» or
+  read-only), so no change is expected; if one turns out to want it, apply step 1.
+- **mppArel `ViewListOTrabTallerPaso` is not that workaround** — it is `editable = { false }` and turns
+  the default menu off under its own rules. Keep its menu as it is.
+- **mppDulce, marketPlazeLib and ticketLib**: no affected override was observed in the name sweep. That
+  sweep is not an exhaustive proof of absence; check your own lists with step 1.
 
 ---
 

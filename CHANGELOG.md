@@ -4,6 +4,58 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Planned as **6.5.0** — not released; the version in `gradle/libs.versions.toml` is unchanged and the
+release awaits authorization. T-6 of the consumer-measured view-layer gaps (design artifacts:
+`blueprints/view-consumer-gaps/`, CONTRACT I-7/I-8, LEDGER L-016..L-019): the default ViewList context
+row menu stops offering «Create» where the list hid it from the toolbar, and stops showing redundant
+separators — the two reasons consumers rebuilt that menu by hand.
+
+### Changed
+- **The row-menu «Create» entry follows `showCreateInContextRowMenu`, which defaults to
+  `showCreateInToolbar`.** Until 6.4.0 the default context row menu offered Create on every row of an
+  editable list, whatever `showCreateInToolbar` said. Now a list with `showCreateInToolbar = false` stops
+  offering Create on right-click too, unless it overrides the new property. Precedence is unchanged:
+  `showDefaultContextRowMenu() == false` still removes every default CRUD entry, and `editable() == false`
+  still leaves Detail alone — the new property cannot bring Create back in either case. Detail, Update
+  and Delete keep their relative order with or without Create. The row menu reads the property each
+  time it opens, and only when Create could be offered; the toolbar reads `showCreateInToolbar` once,
+  when it is built, so a state-dependent getter can make the two surfaces differ.
+- **Redundant separators are removed from the top level of the default context row menu.** Once every
+  group is in — header, default CRUD entries, `ConfigViewItem.contextMenuDefault`, the item config's
+  `contextMenuItems` and the view's `contextRowMenu` — each run of consecutive separators collapses to
+  its first separator and separators at the end are dropped. This also applies to separators the
+  extensions contribute (two contiguous separators are no extra group in Tabulator). No separator is
+  ever added, so a consumer that wants its entries apart keeps a leading separator in them and it stays
+  wherever the previous entry is not a separator. Every remaining entry is the same object, in the same
+  order, with its label, icon, action, header flag and submenu untouched, and the lists the extensions
+  return are not modified. Visible effects: a menu with only the header no longer ends in a separator,
+  and a list with the default entries off no longer shows two separators after the header. Submenus,
+  header menus and every other menu generator are unchanged.
+
+### Added
+- **`ViewList.showCreateInContextRowMenu`** (`open val Boolean`, default `get() = showCreateInToolbar`):
+  governs only the Create entry of the default context row menu. Override it to set the two surfaces
+  apart — e.g. `true` with the toolbar button hidden, when creating depends on the clicked row (the row
+  menu passes the clicked row to `goActionUrl`; the toolbar uses the current selection).
+
+### Added (tests)
+- `ContextRowMenuTest` (36) — characterizes the row menu before the change (entries, icons, translated
+  labels, group order, the row each action captures, and the order and number of every callback the
+  generator consults), then pins the Create decision and the separator normalization both as pure
+  functions and through the production generator. This fixture does not build an RPC-backed Tabulator
+  table: it runs the `rowContextMenu` callback that `defaultTabulatorOptions()` hands Tabulator with a
+  null row, and the internal generator body that callback runs with a non-null (clicked) row. Four
+  mutation controls were run, each failing its target tests on menu content: the Create decision
+  ignoring the new flag, the generator wired to `showCreateInToolbar` instead of the new flag, the
+  separator collapse disabled, and the generator returning the menu without normalization. The removal
+  of trailing separators is covered by content tests, without a mutation control of its own.
+
+### Migration Guide (6.4.0 → 6.5.0, planned)
+A list with `showCreateInToolbar = false` no longer offers Create on right-click; override
+`showCreateInContextRowMenu = true` to keep it. Workarounds that turned the default menu off only to
+rebuild Detail/Update/Delete without Create can go — the switch and the rebuilt entries only. See
+`MIGRATION.md`.
+
 ## [6.4.0] - 2026-10-06
 
 Moves fsLib onto **KVision 9.7.0**, which ships the `TabPanel` disposal fix fsLib contributed upstream
