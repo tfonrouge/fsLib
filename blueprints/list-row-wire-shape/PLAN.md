@@ -11,6 +11,7 @@ Patch (SemVer 6.5.1): no public API change.
 | **P1.5** | CHANGELOG `[Unreleased]` (Fixed + Known limitation) and MIGRATION 6.5.0 → 6.5.1 (table row + section). | OC-01..03 | `CHANGELOG.md`, `MIGRATION.md` | ✅ done |
 | **P1.6** | ROAR review (read-only) on the fingerprinted diff (authorised by the Owner, chat 2026-11-26). | — | — | Round 1: 1 Blocking (R-1) + 5 Non-blocking, all confirmed in scope and fixed (L-005). Round 2: 0 Blocking, 5 Non-blocking (N-1..N-5), all confirmed and fixed; N-3 resolved by Owner confirmation (L-005). Round 3: 0 Blocking, 1 Non-blocking (P-1, a test KDoc claim), confirmed and fixed (Owner, chat 2026-11-26: "corrige P-1 y pide la cuarta ronda de ROAR"). Round 4: REVIEW COMPLETE — no claims to verify. |
 | **P1.7** | On Owner authorisation (chat 2026-11-26: "directo a master, push y hagamos un publish to sonatype"): fix commit `b12cd5c2` (the ROAR round-4 content) and release commit (6.5.1 bump, CHANGELOG, MIGRATION, docs sweep) on `master`, push, Central Portal publication. Tag `v6.5.1` and GitHub Release: not yet authorised. | — | `gradle/libs.versions.toml` | ✅ committed; publication status recorded in LEDGER L-006 / chat |
+| **P1.8** | Consumer verification on the published artifact (outside the OC set): mppErsaPack harness and sweep, mppDulce tests and sweep — recorded, not driven, by fsLib. | — | LEDGER L-007 | ✅ recorded 2026-11-26 |
 
 ## Mutation register (replayable)
 

@@ -34,7 +34,7 @@ are `internal`.
 
 | Effect | vs 6.4.0/6.5.0 loads | vs ≤ 6.3.0 loads | Evidence |
 |---|---|---|---|
-| A nested column over a `null` parent no longer materializes `{c: null}`; formatters, editors, selection, `dataUpdate()`, row menu and `CellComponent.item` decode the row | fixed | not affected before 0.0.46 | tested (formatter, `getSelectedData`); others by reading |
+| A nested column over a `null` parent no longer materializes `{c: null}`; formatters, editors, selection, `dataUpdate()`, row menu and `CellComponent.item` decode the row | fixed | not affected before 0.0.46 | tested (formatter, `getSelectedData`); row menu and `CellComponent.item` confirmed in a consumer harness (L-007); `dataUpdate()` by reading |
 | A property at its default has no key (plain cell no longer shows a non-empty default) | changed | same, with a server config that left `encodeDefaults` unset | key absence tested; cell appearance not tested |
 | A key the row serializer does not know is dropped | changed | changed | tested |
 | Values are re-encoded by the client serializers | changed | changed | by reading |
