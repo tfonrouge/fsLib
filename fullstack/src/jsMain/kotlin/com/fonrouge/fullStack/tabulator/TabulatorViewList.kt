@@ -97,6 +97,11 @@ class TabulatorViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
     var oldMaxPage: Int = -1
     private var url: String = ""
 
+    /**
+     * The codec for this table's rows. It inherits the consumer's JS configuration but pins
+     * `encodeDefaults = false`: rows handed to Tabulator must not carry `null` defaults, whatever the
+     * consumer configured (see [canonicalRows]).
+     */
     override val jsonHelper = if (serializer != null) Json(
         from = (RpcSerialization.customConfiguration ?: Serialization.customConfiguration
         ?: Json {
@@ -104,6 +109,7 @@ class TabulatorViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
             isLenient = true
         })
     ) {
+        encodeDefaults = false
         serializersModule = SerializersModule {
             include(RpcSerialization.plain.serializersModule)
             module?.let { this.include(it) }
@@ -204,6 +210,61 @@ class TabulatorViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
                 }
             }
         }
+    }
+
+    /**
+     * Re-encodes the rows Tabulator's own loader receives through this table's codec
+     * (`toPlainObj(toKotlinObj(row))`), so they have the shape `replaceData` gives the rows of an
+     * `apiCall` refresh — for pages the refresh decoder accepts as a whole: [toKotlinList] decodes the
+     * page in one call and turns any failure into an empty list, while this function works row by row
+     * with [jsonHelper]. Called by the `ajaxRequestFunc` wrapper only — first load and remote
+     * page / sort / filter navigation — never inside `promise()`: the content hash and
+     * `ViewList.onReceivingData` keep the raw RPC rows, and a refresh is re-encoded once, by
+     * `replaceData`, only when its content changed.
+     *
+     * Why it is needed: Kilua RPC 0.0.46 forces `encodeDefaults = true` in its JSON configuration, and
+     * list responses (as observed in the 2026-11-26 incident) carry `"prop": null` for nullable
+     * properties left at their `null` default. Tabulator writes each cell's value back into the row
+     * when it builds the cell; for a nested field (`user.code`) over a `null` parent that write-back
+     * creates the parent — the row becomes `user: {code: null}`, which no longer decodes as `T`.
+     * Every decode of that row then fails: KVision's component formatter/editor wrappers and
+     * `getSelectedData`/`getData` throw (row selection and `ViewList.dataUpdate()` call the latter, with
+     * or without formatters), the row menu shows an error toast and `CellComponent.item` returns `null`.
+     * Re-encoding with [jsonHelper] (whose `encodeDefaults` is pinned to `false`) leaves a `null`
+     * default absent, so Tabulator has nothing to materialize. Side effects on the loaded rows, as on a
+     * refreshed one: any property at its default loses its key, keys the row serializer does not know
+     * are dropped, and values come back as the client serializers encode them.
+     *
+     * A row that does not decode is kept as received, at its position, and reported with
+     * `console.error` — view, row index and the exception class only, never the row, its values or the
+     * exception message (which can quote the JSON). It is never dropped, so a bad row cannot silently
+     * shorten the list. (Such a row still fails KVision's own `dataLoaded` decode, as before.)
+     *
+     * Not covered: a nullable property WITHOUT a default (`val x: X?`) holding `null` is encoded as
+     * `null` here too (`explicitNulls`), and Tabulator materializes it the same way. That case
+     * predates Kilua 0.0.46; see the 6.5.1 CHANGELOG entry.
+     *
+     * @param rows the `data` array of a list response, as parsed from the RPC result.
+     * @return a new array with every decodable row canonicalized; [rows] itself when it is not an
+     * array or this table has no typed codec.
+     */
+    internal fun canonicalRows(rows: dynamic): dynamic {
+        if (kClass == null || serializer == null || jsonHelper == null) return rows
+        if (!(js("Array").isArray(rows) as Boolean)) return rows
+        val out: dynamic = js("[]")
+        rows.unsafeCast<Array<dynamic>>().forEachIndexed { index, row ->
+            val canonical: dynamic = try {
+                toPlainObj(toKotlinObj(row))
+            } catch (e: Throwable) {
+                console.error(
+                    "${viewList.configView.viewKClass.simpleName}: list row $index could not be re-encoded " +
+                        "for the grid (${e::class.simpleName ?: "error"}); kept as received."
+                )
+                row
+            }
+            out.push(canonical)
+        }
+        return out
     }
 
     private fun promise(
@@ -327,7 +388,16 @@ class TabulatorViewList<T : BaseDoc<ID>, ID : Any, FILT : IApiFilter<MID>, MID :
                 size = size,
                 filters = filters,
                 sorters = sorters,
-            ).also {
+            ).then { response: dynamic ->
+                // Only the rows handed to Tabulator's own loader (first load and remote page / sort /
+                // filter navigation) are canonicalized; the content hash and onReceivingData keep
+                // reading the raw RPC rows inside promise(), and apiCall's refresh already re-encodes
+                // through replaceData. See canonicalRows.
+                if (response.data != undefined) {
+                    response.data = canonicalRows(response.data)
+                }
+                response
+            }.also {
                 clearStartTime()
             }
         }

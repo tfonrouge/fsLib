@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Planned as a patch (6.5.1); design artifacts: `blueprints/list-row-wire-shape/`. The regression reached
+production in mppErsaPack 2.6.196 (fsLib 6.5.0, Kilua RPC 0.0.46) on 2026-11-26 and was rolled back; it
+stays dormant in consumers still on Kilua RPC 0.0.45.
+
+### Fixed
+- **ViewList rows loaded by Tabulator's own loader no longer break when a nested column's parent is
+  `null`.** Kilua RPC 0.0.46 (brought in by 6.4.0) sets `encodeDefaults = true` in
+  `RpcSerialization.plain` and `getCustomJson`, also over a `customConfiguration`, and the list response
+  of the incident carried `"prop": null` for nullable properties left at their `null` default — there, a
+  `$lookup`-filled body property `var user: User? = null`. `TabulatorViewList` handed those raw rows to
+  Tabulator on the first load, and Tabulator, building a nested-field cell (`user.code`) over a `null`
+  parent, writes the cell value back and turns the row into `user: {code: null}`, which no longer
+  decodes. KVision's component formatter/editor wrapper then threw, uncaught (production symptom:
+  `Expected string literal but 'null' literal was found at path: $.user.code`); and, with or without
+  formatters, row selection and `ViewList.dataUpdate()` (through `getSelectedData`), the row menu and
+  `CellComponent.item` decode the same row. The `apiCall()` refresh never
+  had the problem, because `replaceData` re-encodes its rows. Now the rows Tabulator's AJAX loader receives — first load and
+  remote page / sort / filter navigation — are re-encoded through the table's own codec first. For pages both paths can decode (the
+  loader reads row by row with `jsonHelper`; the refresh reads the whole page with `toKotlinList`, which
+  shows an empty page if any row fails — unchanged), the grid then holds rows of the same shape after a
+  load and after a refresh: a property at its default value (a `null` default included)
+  has no key, as `replaceData` already produced and as loads had before Kilua 0.0.46 with a server
+  configuration that left `encodeDefaults` unset. `TabulatorViewList.jsonHelper` pins
+  `encodeDefaults = false`, so a JS-side `RpcSerialization.customConfiguration` /
+  `Serialization.customConfiguration` cannot change that shape. A row that cannot be re-encoded is kept
+  as received, at its position, and reported with `console.error` (view, row index, exception class — no
+  row content). Unchanged: the content hash and `ViewList.onReceivingData` keep receiving the raw RPC
+  rows, the refresh decoder is untouched, and a refresh whose content did not change does no
+  re-encoding. On the AJAX load, rows now also drop keys the row
+  serializer does not know and carry values as the client serializers encode them, as refreshed rows
+  always did. Plain columns that showed a default value right after the AJAX load in 6.4.0/6.5.0 no
+  longer find that key there — see MIGRATION. KVision 10.0.0-RC, Kilua RPC 0.0.47-RC and
+  tabulator-tables 6.7.1 change no link of this chain (checked by reading their code, 2026-11-26), so upgrading does not replace this fix.
+
+### Known limitation (unchanged, not a regression)
+- A nullable property **without** a default (`val x: X?`) that holds `null` and is the parent of a nested
+  column still reaches Tabulator as an explicit `null` (kotlinx `explicitNulls`), and Tabulator still
+  materializes it into a partial object. This predates Kilua 0.0.46. Give such a property a `= null`
+  default, or avoid a nested `field` over it.
+
 ## [6.5.0] - 2026-11-23
 
 T-6 of the consumer-measured view-layer gaps (design artifacts:

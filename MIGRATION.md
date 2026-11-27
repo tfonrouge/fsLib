@@ -20,9 +20,59 @@ list and the rationale.
 | [6.2.4 → 6.3.0](#624--630--help-ui-strings-become-i18n-keys) | **Add 15 keys to your i18n catalog** or the help UI and the cancel dialog show English at runtime (compiles fine either way). Recommended: swap `tomSelectRemote` → `fsTomSelectRemote` to stop the 7–9× RPC storm per form open. |
 | [6.3.0 → 6.4.0](#630--640--kvision-970-kotlin-2420) | **Build with Kotlin 2.4.20.** Keep deploying on Java 25. Column titles now always come from code (stored layouts stay valid; a context-dependent list wants a `persistenceVariant`). `fsTabPanel` is deprecated (warning only) — swap back to KVision's `tabPanel` when convenient. |
 | [6.4.0 → 6.5.0](#migrate-6-4-0-to-6-5-0) | Compiles unchanged. **A list with `showCreateInToolbar = false` stops offering Create on right-click** — override `showCreateInContextRowMenu = true` where that Create is wanted. Redundant row-menu separators disappear. Workarounds that rebuilt the row menu without Create can be removed. |
+| [6.5.0 → 6.5.1](#migrate-6-5-0-to-6-5-1) *(unreleased)* | No code change for the fix — **ship it before 6.4.0/6.5.0 reaches production** in any list with a nested column over a nullable property with a `null` default (a `$lookup`-filled body property or a constructor property alike), with or without formatters. **Review plain grid columns that relied on showing a default value on the AJAX load** (first load, page / sort / filter): the row no longer carries that key there, as it never did after a refresh. Raw RPC JSON (`onReceivingData` included) still carries the defaults Kilua RPC 0.0.46 sends. |
 
 Skipping releases? Apply **every** section between your version and your target — a migration is not
 optional just because you skipped the release that introduced it.
+
+---
+
+<a id="migrate-6-5-0-to-6-5-1"></a>
+
+## 6.5.0 → 6.5.1 — grid rows after Kilua RPC 0.0.46 *(unreleased)*
+
+**Symptom if you stay on 6.4.0/6.5.0.** Everything compiles. In a ViewList whose grid has a nested
+column (`fieldName(A::b, B::c)`) over a nullable property with a `null` default, every row where that
+property arrives as `null` on the AJAX load (first load, and remote page / sort / filter navigation) is
+rewritten by Tabulator into a partial object (`b: {c: null}`) that no longer decodes. What breaks:
+- with a component formatter or editor, the load throws, uncaught:
+  `Expected string literal but 'null' literal was found at path: $.b.c` (tested);
+- **with or without formatters**, selecting that row: KVision's `getSelectedData()` throws, so the
+  selection handler fails (tested on `getSelectedData()`); `ViewList.dataUpdate()` calls it before
+  refreshing and stops there (by reading);
+- the row context menu shows an error toast, and `formatterFunction` columns that read
+  `CellComponent.item` get `null` (by reading).
+
+**The fix needs no code change.** The rows Tabulator's AJAX loader receives are re-encoded through the
+grid's codec, so — for pages both paths can decode — the grid holds the same row shape after a load as
+after a refresh: a property at its default value has no key in the row. Refreshes always produced that
+shape. On loads it differs from earlier versions as follows:
+- a property at its default loses its key — as loads up to 6.3.0 already did, unless the server JSON
+  configuration set `encodeDefaults = true`;
+- a key the row serializer does not know is dropped — new on loads in every version (tested);
+- values come back as the client serializers encode them, not as the server sent them — new on loads.
+
+For a refresh the equivalence holds per page: the refresh decoder (`toKotlinList`) decodes the whole page
+at once and shows an empty page if any row fails (unchanged, pre-existing), while the load path
+re-encodes row by row and keeps a failing row as received.
+
+**What to review.** Plain columns (no formatter of their own) bound to a property that can sit at a
+non-empty default — `qty: Int = 0`, `status: Status = Status.ACTIVE` — and that relied on showing that
+value right after the AJAX load in 6.4.0/6.5.0. The key is now absent on that path (verified by test).
+How such a cell then renders depends on the column's formatter; the library's tests do not cover a
+non-empty default in a plain cell. If the value must show, use a formatter that decodes the row (KVision
+`formatterComponentFunction`) or reads it with its default.
+
+**What 6.5.1 does not change.**
+- `ViewList.onReceivingData` and the list content hash keep receiving the raw RPC rows.
+- The refresh decoder (`toKotlinList`) and its configuration.
+- The wire. Kilua RPC 0.0.46 sets `encodeDefaults = true` in `RpcSerialization.plain` and
+  `getCustomJson`, also over your `RpcSerialization.customConfiguration`, with no opt-out; list responses
+  now carry default values that 6.3.0 (Kilua 0.0.45) did not send with a server configuration that left
+  `encodeDefaults` unset (the case in mppErsaPack and mppArel). Review code that reads the raw RPC JSON —
+  an `onReceivingData` override included — and relies on a default **not** being present.
+- Out of scope, unchanged: a nullable property **without** a default (`val x: X?`) holding `null` under a
+  nested column is still sent and materialized as before; give it a `= null` default.
 
 ---
 

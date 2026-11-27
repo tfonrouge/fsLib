@@ -42,6 +42,16 @@ object ViewRegistry {
         }
 
     /**
+     * The list service manager as stored — `null` while unset — for module-internal callers (tests)
+     * that must save and restore it exactly; [listServiceManager] cannot express "unset".
+     */
+    internal var listServiceManagerOrNull: RpcServiceManager<*>?
+        get() = _listServiceManager
+        set(value) {
+            _listServiceManager = value
+        }
+
+    /**
      * RPC service manager for list operations.
      *
      * @throws IllegalStateException if accessed before being initialized.
