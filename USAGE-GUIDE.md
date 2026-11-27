@@ -61,7 +61,7 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("com.fonrouge.fslib:fullstack:6.5.0")
+                api("com.fonrouge.fslib:fullstack:6.5.1")
             }
         }
         jvmMain {
@@ -88,7 +88,7 @@ To develop and test against a local build of FSLib, publish a SNAPSHOT version t
 ./gradlew publishToMavenLocal -PSNAPSHOT
 ```
 
-The `-PSNAPSHOT` flag automatically appends `-SNAPSHOT` to the version (e.g., `6.5.0` becomes `6.5.0-SNAPSHOT`) without modifying `libs.versions.toml`. Then in your consuming project:
+The `-PSNAPSHOT` flag automatically appends `-SNAPSHOT` to the version (e.g., `6.5.1` becomes `6.5.1-SNAPSHOT`) without modifying `libs.versions.toml`. Then in your consuming project:
 
 ```kotlin
 repositories {
@@ -97,7 +97,7 @@ repositories {
 
 dependencies {
     // Use the SNAPSHOT version matching what you published
-    api("com.fonrouge.fslib:fullstack:6.5.0-SNAPSHOT")
+    api("com.fonrouge.fslib:fullstack:6.5.1-SNAPSHOT")
 }
 ```
 
@@ -465,7 +465,7 @@ val repo = InMemoryRepository<Task, String, TaskFilter, String>(
 
 ```kotlin
 // build.gradle.kts (jvmMain)
-implementation("com.fonrouge.fslib:memorydb:6.5.0")
+implementation("com.fonrouge.fslib:memorydb:6.5.1")
 ```
 
 See `samples/fullstack/showcase/` for a complete example using `InMemoryRepository`.

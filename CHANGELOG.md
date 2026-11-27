@@ -4,7 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-Planned as a patch (6.5.1); design artifacts: `blueprints/list-row-wire-shape/`. The regression reached
+## [6.5.1] - 2026-11-26
+
+Patch for a regression introduced in 6.4.0; design artifacts: `blueprints/list-row-wire-shape/`. The regression reached
 production in mppErsaPack 2.6.196 (fsLib 6.5.0, Kilua RPC 0.0.46) on 2026-11-26 and was rolled back; it
 stays dormant in consumers still on Kilua RPC 0.0.45.
 

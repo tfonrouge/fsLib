@@ -20,7 +20,7 @@ list and the rationale.
 | [6.2.4 → 6.3.0](#624--630--help-ui-strings-become-i18n-keys) | **Add 15 keys to your i18n catalog** or the help UI and the cancel dialog show English at runtime (compiles fine either way). Recommended: swap `tomSelectRemote` → `fsTomSelectRemote` to stop the 7–9× RPC storm per form open. |
 | [6.3.0 → 6.4.0](#630--640--kvision-970-kotlin-2420) | **Build with Kotlin 2.4.20.** Keep deploying on Java 25. Column titles now always come from code (stored layouts stay valid; a context-dependent list wants a `persistenceVariant`). `fsTabPanel` is deprecated (warning only) — swap back to KVision's `tabPanel` when convenient. |
 | [6.4.0 → 6.5.0](#migrate-6-4-0-to-6-5-0) | Compiles unchanged. **A list with `showCreateInToolbar = false` stops offering Create on right-click** — override `showCreateInContextRowMenu = true` where that Create is wanted. Redundant row-menu separators disappear. Workarounds that rebuilt the row menu without Create can be removed. |
-| [6.5.0 → 6.5.1](#migrate-6-5-0-to-6-5-1) *(unreleased)* | No code change for the fix — **ship it before 6.4.0/6.5.0 reaches production** in any list with a nested column over a nullable property with a `null` default (a `$lookup`-filled body property or a constructor property alike), with or without formatters. **Review plain grid columns that relied on showing a default value on the AJAX load** (first load, page / sort / filter): the row no longer carries that key there, as it never did after a refresh. Raw RPC JSON (`onReceivingData` included) still carries the defaults Kilua RPC 0.0.46 sends. |
+| [6.5.0 → 6.5.1](#migrate-6-5-0-to-6-5-1) | No code change for the fix — **go straight to 6.5.1 rather than shipping 6.4.0/6.5.0 to production** for any list with a nested column over a nullable property with a `null` default (a `$lookup`-filled body property or a constructor property alike), with or without formatters. **Review plain grid columns that relied on showing a default value on the AJAX load** (first load, page / sort / filter): the row no longer carries that key there, as it never did after a refresh. Raw RPC JSON (`onReceivingData` included) still carries the defaults Kilua RPC 0.0.46 sends. |
 
 Skipping releases? Apply **every** section between your version and your target — a migration is not
 optional just because you skipped the release that introduced it.
@@ -29,7 +29,7 @@ optional just because you skipped the release that introduced it.
 
 <a id="migrate-6-5-0-to-6-5-1"></a>
 
-## 6.5.0 → 6.5.1 — grid rows after Kilua RPC 0.0.46 *(unreleased)*
+## 6.5.0 → 6.5.1 — grid rows after Kilua RPC 0.0.46
 
 **Symptom if you stay on 6.4.0/6.5.0.** Everything compiles. In a ViewList whose grid has a nested
 column (`fieldName(A::b, B::c)`) over a nullable property with a `null` default, every row where that
